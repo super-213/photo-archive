@@ -18,7 +18,14 @@ export function ProjectCover({
       className={`project-cover project-cover-${(index % 3) + 1}`}
     >
       <div className="cover-image">
-        <PhotoImage photo={cover} sizes="(max-width: 767px) 90vw, 60vw" />
+        <PhotoImage
+          photo={cover}
+          sizes={
+            index % 3 === 1
+              ? "(max-width: 767px) 72vw, 34vw"
+              : "(max-width: 767px) 90vw, 60vw"
+          }
+        />
       </div>
       <div className="cover-caption">
         <div>

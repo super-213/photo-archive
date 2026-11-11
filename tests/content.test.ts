@@ -421,3 +421,89 @@ test("AVIF originals retain their correct media type and SVG is rejected", async
     /单帧/,
   );
 });
+
+test("editorial groups persist independently and preserve every association during reorder", async () => {
+  for (let index = 0; index < 4; index++) {
+    const bytes = await sharp({
+      create: {
+        width: 100 + index,
+        height: 80,
+        channels: 3,
+        background: "green",
+      },
+    })
+      .png()
+      .toBuffer();
+    await importPhoto(bytes, `group-fixture-${index}.png`);
+  }
+  const photos = listPhotos(false);
+  for (const photo of photos)
+    updatePhoto(photo.id, photoInput.parse({ ...photo, visibility: "public" }));
+  const items = photos.map((photo, index) => ({
+    photoId: photo.id,
+    caption: `caption-${index}`,
+    layoutType:
+      index < 2 ? "asymmetric" : index < 4 ? "large-small" : "triptych",
+    groupId: index < 2 ? "first" : index < 4 ? "second" : "third",
+  }));
+  const input = projectInput.parse({
+    version: 0,
+    slug: "editorial",
+    title: "Editorial",
+    subtitle: "",
+    description: "",
+    category: "Landscape",
+    year: "2026",
+    coverPhotoId: photos[0].id,
+    status: "published",
+    sortOrder: 0,
+    items,
+  });
+  const project = saveProject(null, input);
+  assert.deepEqual(
+    project.layouts.map((group) => [
+      group.id,
+      group.type,
+      group.photoIds.length,
+    ]),
+    [
+      ["first", "asymmetric", 2],
+      ["second", "large-small", 2],
+      ["third", "triptych", 3],
+    ],
+  );
+  const next = saveProject(
+    project.id,
+    projectInput.parse({
+      ...project,
+      items: [...project.items.slice(4), ...project.items.slice(0, 4)],
+    }),
+  );
+  assert.deepEqual(
+    next.layouts.map((group) => group.id),
+    ["third", "first", "second"],
+  );
+  assert.equal(
+    next.items.find((item) => item.photoId === photos[0].id)!.caption,
+    "caption-0",
+  );
+  assert.equal(listPhotos(false).length, photos.length);
+  assert.equal(
+    projectInput.safeParse({
+      ...project,
+      items: project.items.map((item) => ({
+        ...item,
+        groupId: "one-group",
+        layoutType: "pair",
+      })),
+    }).success,
+    false,
+  );
+  assert.equal(
+    projectInput.safeParse({
+      ...project,
+      items: [project.items[0], project.items[2], project.items[1]],
+    }).success,
+    false,
+  );
+});

@@ -1,4 +1,5 @@
 import "server-only";
+import { buildPhotoLayouts } from "../content";
 import { randomUUID } from "node:crypto";
 import type {
   Category,
@@ -134,28 +135,29 @@ export function updatePhoto(id: string, input: z.infer<typeof photoInput>) {
 function serializeProject(row: ProjectRow): Project {
   const members = getDatabase()
     .prepare(
-      "SELECT photo_id, layout_type, caption FROM project_photo WHERE project_id = ? ORDER BY sort_order",
+      "SELECT photo_id, layout_type, caption, layout_group FROM project_photo WHERE project_id = ? ORDER BY sort_order",
     )
     .all(row.id) as {
     photo_id: string;
     layout_type: PhotoLayout["type"];
     caption: string;
+    layout_group: string | null;
   }[];
   const photos = members
     .map((item) => getPhoto(item.photo_id)!)
     .filter(Boolean);
-  const layouts: PhotoLayout[] = [];
-  for (const member of members) {
-    const previous = layouts.at(-1);
-    if (
-      member.layout_type === "pair" &&
-      previous?.type === "pair" &&
-      previous.photoIds.length === 1
-    )
-      previous.photoIds.push(member.photo_id);
-    else
-      layouts.push({ type: member.layout_type, photoIds: [member.photo_id] });
-  }
+  const rawItems = members.map((item): ProjectPhotoInput => ({
+    photoId: item.photo_id,
+    layoutType: item.layout_type,
+    caption: item.caption,
+    groupId: item.layout_group || undefined,
+  }));
+  const layouts = buildPhotoLayouts(rawItems);
+  const groupIds = new Map(
+    layouts.flatMap((layout) =>
+      layout.photoIds.map((id) => [id, layout.id] as const),
+    ),
+  );
   return {
     id: row.id,
     slug: row.slug,
@@ -170,10 +172,9 @@ function serializeProject(row: ProjectRow): Project {
     version: row.version,
     photos,
     layouts,
-    items: members.map((item): ProjectPhotoInput => ({
-      photoId: item.photo_id,
-      layoutType: item.layout_type,
-      caption: item.caption,
+    items: rawItems.map((item) => ({
+      ...item,
+      groupId: groupIds.get(item.photoId),
     })),
   };
 }
@@ -255,10 +256,24 @@ export function saveProject(
       db.prepare("DELETE FROM project_photo WHERE project_id = ?").run(
         projectId,
       );
+      const groupIds = new Map(
+        buildPhotoLayouts(items).flatMap((layout) =>
+          layout.photoIds.map((id) => [id, layout.id] as const),
+        ),
+      );
       items.forEach((item, index) =>
         db
-          .prepare("INSERT INTO project_photo VALUES (?,?,?,?,?)")
-          .run(projectId, item.photoId, index, item.layoutType, item.caption),
+          .prepare(
+            "INSERT INTO project_photo(project_id,photo_id,sort_order,layout_type,caption,layout_group) VALUES (?,?,?,?,?,?)",
+          )
+          .run(
+            projectId,
+            item.photoId,
+            index,
+            item.layoutType,
+            item.caption,
+            groupIds.get(item.photoId),
+          ),
       );
       return getProject(projectId)!;
     })

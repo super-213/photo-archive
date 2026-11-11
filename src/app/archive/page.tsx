@@ -17,11 +17,6 @@ export default function ArchivePage() {
             The <em>archive.</em>
           </h1>
         </div>
-        <p>
-          山川与街巷，
-          <br />
-          还有日常里的微小世界。
-        </p>
       </header>
       <Suspense
         fallback={

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { categories } from "../content";
+import { categories, layoutTypes, layoutDefinitions } from "../content";
 
 const shortText = z.string().trim().max(200);
 export const captureDate = z.union([z.literal(""), z.iso.date()]);
@@ -49,8 +49,9 @@ export const projectInput = z
       .array(
         z.object({
           photoId: z.string().min(1).max(100),
-          layoutType: z.enum(["full", "center", "pair"]),
+          layoutType: z.enum(layoutTypes),
           caption: z.string().max(500),
+          groupId: z.string().min(1).max(100).optional(),
         }),
       )
       .max(1000),
@@ -60,7 +61,39 @@ export const projectInput = z
       new Set(data.items.map((item) => item.photoId)).size ===
       data.items.length,
     "系列内不能重复加入同一张照片",
-  );
+  )
+  .superRefine(({ items }, context) => {
+    const groups = new Map<
+      string,
+      { type: string; count: number; lastIndex: number }
+    >();
+    items.forEach((item, index) => {
+      if (!item.groupId) return;
+      const group = groups.get(item.groupId);
+      if (
+        group &&
+        (group.type !== item.layoutType || group.lastIndex !== index - 1)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["items", index, "groupId"],
+          message: "同一布局的照片必须连续排列，并使用同一种排版",
+        });
+      }
+      const count = (group?.count || 0) + 1;
+      if (count > layoutDefinitions[item.layoutType].capacity)
+        context.addIssue({
+          code: "custom",
+          path: ["items", index],
+          message: "当前布局的照片数量超过容量",
+        });
+      groups.set(item.groupId, {
+        type: item.layoutType,
+        count,
+        lastIndex: index,
+      });
+    });
+  });
 
 export class AppError extends Error {
   constructor(

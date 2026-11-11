@@ -1,32 +1,28 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { categories, categoryLabels, type Photo } from "@/lib/content";
+import {
+  legacyArchiveFilterKeys,
+  filterArchivePhotos,
+  readArchiveFilters,
+} from "@/lib/archive-filters";
 import { PhotoGallery } from "./photo-gallery";
 
 export function Archive({ photos }: { photos: Photo[] }) {
-  const years = [...new Set(photos.map((photo) => photo.year).filter(Boolean))]
-    .sort()
-    .reverse();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const pathname = usePathname();
-  const category = searchParams.get("category") ?? "all";
-  const year = searchParams.get("year") ?? "all";
-  const filtered = photos.filter(
-    (photo) =>
-      (category === "all" || photo.category === category) &&
-      (year === "all" || photo.year === year),
-  );
-  const hasFilters = category !== "all" || year !== "all";
+  const filters = readArchiveFilters(searchParams);
+  const filtered = filterArchivePhotos(photos, filters);
 
-  function updateFilter(key: string, value: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value === "all") params.delete(key);
-    else params.set(key, value);
-    router.push(`${pathname}${params.size ? `?${params.toString()}` : ""}`, {
-      scroll: false,
-    });
+  function updateCategory(category: string) {
+    const params = new URLSearchParams(window.location.search);
+    legacyArchiveFilterKeys.forEach((key) => params.delete(key));
+    if (category === "all") params.delete("category");
+    else params.set("category", category);
+    const nextUrl = `${pathname}${params.size ? `?${params}` : ""}`;
+    if (nextUrl !== `${window.location.pathname}${window.location.search}`)
+      window.history.pushState(null, "", nextUrl);
   }
 
   return (
@@ -34,63 +30,37 @@ export function Archive({ photos }: { photos: Photo[] }) {
       <div className="archive-toolbar">
         <div className="category-filters" role="group" aria-label="按题材筛选">
           <button
-            aria-pressed={category === "all"}
-            onClick={() => updateFilter("category", "all")}
+            type="button"
+            aria-pressed={filters.category === "all"}
+            onClick={() => updateCategory("all")}
           >
             全部
           </button>
           {categories.map((item) => (
             <button
+              type="button"
               key={item}
-              aria-pressed={category === item}
-              onClick={() => updateFilter("category", item)}
+              aria-pressed={filters.category === item}
+              onClick={() => updateCategory(item)}
             >
               {categoryLabels[item]}
-              <span className="category-english"> {item}</span>
             </button>
           ))}
         </div>
-        <div className="year-filter">
-          <label htmlFor="year">年份</label>
-          <select
-            id="year"
-            value={year}
-            onChange={(event) => updateFilter("year", event.target.value)}
-          >
-            <option value="all">全部年份</option>
-            {years.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-            {year !== "all" && !years.includes(year) && (
-              <option value={year}>{year}</option>
-            )}
-          </select>
-        </div>
       </div>
-      <div className="archive-status">
-        <p role="status" aria-live="polite">
-          {String(filtered.length).padStart(2, "0")} photographs
-        </p>
-        {hasFilters && (
-          <button
-            className="reset-filter"
-            onClick={() => router.push(pathname, { scroll: false })}
-          >
-            重置筛选 ×
-          </button>
-        )}
-      </div>
+      <p className="archive-status" role="status" aria-live="polite">
+        {String(filtered.length).padStart(2, "0")} photographs
+      </p>
       {filtered.length ? (
-        <PhotoGallery key={`${category}-${year}`} photos={filtered} />
+        <PhotoGallery key={filters.category} photos={filtered} />
       ) : (
         <div className="empty-state">
           <h2>这里还没有照片。</h2>
-          <p>试试其他题材或年份。</p>
+          <p>选择其他题材，再试一次。</p>
           <button
+            type="button"
             className="text-link"
-            onClick={() => router.push(pathname, { scroll: false })}
+            onClick={() => updateCategory("all")}
           >
             查看全部照片 →
           </button>

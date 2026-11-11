@@ -1,5 +1,5 @@
 "use client";
-import Image from "next/image";
+import { ProjectArrangement } from "./project-arrangement";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -25,24 +25,10 @@ export function ProjectEditor({
     initialProject?.items || [],
   );
   const [cover, setCover] = useState(initialProject?.coverPhotoId || "");
-  const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const available = photos.filter(
-    (photo) =>
-      !items.some((item) => item.photoId === photo.id) &&
-      photo.title.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  function move(index: number, step: number) {
-    setItems((current) => {
-      const next = [...current];
-      [next[index], next[index + step]] = [next[index + step], next[index]];
-      return next;
-    });
-  }
 
   return (
     <>
@@ -87,6 +73,7 @@ export function ProjectEditor({
               },
             );
             setProject(result);
+            setItems(result.items);
             setNotice(
               result.status === "published"
                 ? "系列已发布，前台已更新。"
@@ -181,149 +168,14 @@ export function ProjectEditor({
             </label>
           </div>
         </fieldset>
-        <section className="project-arrangement">
-          <div className="editor-title">
-            <h2>系列照片 · {items.length}</h2>
-            <span className="admin-muted">
-              用上下按钮调整顺序，连续两张“双图”组成一组。
-            </span>
-          </div>
-          {!items.length && (
-            <p className="admin-empty admin-muted">
-              从下方媒体库添加照片，再选择封面。
-            </p>
-          )}
-          <ol className="project-photo-list">
-            {items.map((item, index) => {
-              const photo = photos.find((photo) => photo.id === item.photoId)!;
-              return (
-                <li key={photo.id}>
-                  <Image
-                    src={photo.thumbnailSrc}
-                    alt={photo.alt}
-                    width={100}
-                    height={80}
-                  />
-                  <div className="project-photo-label">
-                    <strong>{photo.title}</strong>
-                    <span className="admin-muted">
-                      {photo.visibility === "public"
-                        ? "公开"
-                        : photo.visibility === "private"
-                          ? "私有"
-                          : "草稿"}
-                    </span>
-                  </div>
-                  <label className="cover-radio">
-                    <input
-                      type="radio"
-                      name="coverChoice"
-                      checked={cover === photo.id}
-                      disabled={busy}
-                      onChange={() => setCover(photo.id)}
-                    />
-                    封面
-                  </label>
-                  <label className="layout-select">
-                    <span className="sr-only">{photo.title} 排版</span>
-                    <select
-                      aria-label={`${photo.title} 排版`}
-                      value={item.layoutType}
-                      disabled={busy}
-                      onChange={(event) =>
-                        setItems((current) =>
-                          current.map((entry) =>
-                            entry.photoId === photo.id
-                              ? {
-                                  ...entry,
-                                  layoutType: event.target
-                                    .value as ProjectPhotoInput["layoutType"],
-                                }
-                              : entry,
-                          ),
-                        )
-                      }
-                    >
-                      <option value="full">全宽</option>
-                      <option value="center">居中</option>
-                      <option value="pair">双图</option>
-                    </select>
-                  </label>
-                  <div className="order-controls">
-                    <button
-                      type="button"
-                      aria-label={`上移 ${photo.title}`}
-                      disabled={busy || index === 0}
-                      onClick={() => move(index, -1)}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`下移 ${photo.title}`}
-                      disabled={busy || index === items.length - 1}
-                      onClick={() => move(index, 1)}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      aria-label={`移除 ${photo.title}`}
-                      onClick={() => {
-                        setItems((current) =>
-                          current.filter((entry) => entry.photoId !== photo.id),
-                        );
-                        if (cover === photo.id) setCover("");
-                      }}
-                    >
-                      移除
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-        <section className="project-library">
-          <div className="editor-title">
-            <h2>从媒体库添加</h2>
-            <input
-              type="search"
-              aria-label="查找待添加照片"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="按标题查找"
-            />
-          </div>
-          <div className="library-grid">
-            {available.map((photo) => (
-              <button
-                type="button"
-                key={photo.id}
-                disabled={busy}
-                aria-label={`添加 ${photo.title}`}
-                onClick={() =>
-                  setItems((current) => [
-                    ...current,
-                    { photoId: photo.id, layoutType: "full", caption: "" },
-                  ])
-                }
-              >
-                <Image
-                  src={photo.thumbnailSrc}
-                  alt={photo.alt}
-                  width={photo.width}
-                  height={photo.height}
-                />
-                <span>{photo.title} +</span>
-              </button>
-            ))}
-          </div>
-          {!available.length && (
-            <p className="admin-muted">没有其他符合条件的照片。</p>
-          )}
-        </section>
+        <ProjectArrangement
+          items={items}
+          onChange={setItems}
+          photos={photos}
+          cover={cover}
+          onCover={setCover}
+          busy={busy}
+        />
         <div className="project-savebar">
           {error && (
             <p className="admin-error" role="alert">

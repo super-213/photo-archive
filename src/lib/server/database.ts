@@ -69,6 +69,27 @@ export function getDatabase() {
       new Date().toISOString(),
     );
   }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 2").get())
+      return;
+    db.exec(`
+      CREATE TABLE project_photo_next (
+        project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+        photo_id TEXT NOT NULL REFERENCES photo(id), sort_order INTEGER NOT NULL,
+        layout_type TEXT NOT NULL DEFAULT 'full' CHECK (layout_type IN ('full','center','pair','asymmetric','large-small','triptych')),
+        caption TEXT NOT NULL DEFAULT '', layout_group TEXT,
+        PRIMARY KEY(project_id, photo_id), UNIQUE(project_id, sort_order)
+      );
+      INSERT INTO project_photo_next(project_id,photo_id,sort_order,layout_type,caption)
+        SELECT project_id,photo_id,sort_order,layout_type,caption FROM project_photo;
+      DROP TABLE project_photo;
+      ALTER TABLE project_photo_next RENAME TO project_photo;
+      CREATE INDEX project_photo_photo ON project_photo(photo_id);
+    `);
+    db.prepare("INSERT INTO schema_migration VALUES (2, ?)").run(
+      new Date().toISOString(),
+    );
+  }).immediate();
   database = db;
   return db;
 }

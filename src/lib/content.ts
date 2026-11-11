@@ -47,14 +47,36 @@ export type Photo = {
   isSample: boolean;
   version: number;
 };
+export const layoutTypes = [
+  "full",
+  "center",
+  "pair",
+  "asymmetric",
+  "large-small",
+  "triptych",
+] as const;
+export type LayoutType = (typeof layoutTypes)[number];
+export const layoutDefinitions: Record<
+  LayoutType,
+  { label: string; capacity: number }
+> = {
+  full: { label: "全宽", capacity: 1 },
+  center: { label: "居中", capacity: 1 },
+  pair: { label: "双图", capacity: 2 },
+  asymmetric: { label: "错位双图", capacity: 2 },
+  "large-small": { label: "一大一小", capacity: 2 },
+  triptych: { label: "三联", capacity: 3 },
+};
 export type PhotoLayout = {
-  type: "full" | "center" | "pair";
+  id: string;
+  type: LayoutType;
   photoIds: string[];
 };
 export type ProjectPhotoInput = {
   photoId: string;
   layoutType: PhotoLayout["type"];
   caption: string;
+  groupId?: string;
 };
 export type Project = {
   id: string;
@@ -77,4 +99,31 @@ export function getProjectPhotos(project: Project) {
 }
 export function getCover(project: Project) {
   return project.photos.find((photo) => photo.id === project.coverPhotoId);
+}
+
+export function buildPhotoLayouts(items: ProjectPhotoInput[]): PhotoLayout[] {
+  const layouts: PhotoLayout[] = [];
+  let previousWasLegacy = false;
+  for (const item of items) {
+    const previous = layouts.at(-1);
+    const sameGroup = item.groupId
+      ? previous?.id === item.groupId
+      : previousWasLegacy && previous?.type === item.layoutType;
+    if (
+      previous &&
+      sameGroup &&
+      previous.type === item.layoutType &&
+      previous.photoIds.length < layoutDefinitions[item.layoutType].capacity
+    ) {
+      previous.photoIds.push(item.photoId);
+    } else {
+      layouts.push({
+        id: item.groupId || `legacy-${item.photoId}`,
+        type: item.layoutType,
+        photoIds: [item.photoId],
+      });
+    }
+    previousWasLegacy = !item.groupId;
+  }
+  return layouts;
 }

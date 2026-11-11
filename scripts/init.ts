@@ -30,11 +30,12 @@ async function main() {
   for (const [index, project] of sampleProjects.entries()) {
     if (listProjects(false).some((existing) => existing.slug === project.slug))
       continue;
-    const items = project.layouts.flatMap((layout) =>
+    const items = project.layouts.flatMap((layout, layoutIndex) =>
       layout.photoIds.map((id) => ({
         photoId: ids.get(id)!,
         layoutType: layout.type,
         caption: "",
+        groupId: `sample-${project.slug}-${layoutIndex}`,
       })),
     );
     const canPublish = items.every(

@@ -16,11 +16,6 @@ export default function Works() {
             Selected <em>works.</em>
           </h1>
         </div>
-        <p>
-          以照片为线索，
-          <br />
-          把片刻编成故事。
-        </p>
       </header>
       {!projects.length && <p className="empty-state">摄影系列正在整理中。</p>}
       <div className="editorial-grid">

@@ -11,9 +11,8 @@ export const sampleProjects = [
     coverPhotoId: "fuji",
     layouts: [
       { type: "full", photoIds: ["fuji"] },
-      { type: "pair", photoIds: ["lakeside", "curve"] },
-      { type: "center", photoIds: ["peak"] },
-      { type: "pair", photoIds: ["alpine", "mist"] },
+      { type: "asymmetric", photoIds: ["lakeside", "curve"] },
+      { type: "triptych", photoIds: ["peak", "alpine", "mist"] },
     ],
   },
   {
@@ -26,9 +25,8 @@ export const sampleProjects = [
     coverPhotoId: "rain",
     layouts: [
       { type: "center", photoIds: ["rain"] },
-      { type: "pair", photoIds: ["alley", "lanterns"] },
-      { type: "full", photoIds: ["crossing"] },
-      { type: "pair", photoIds: ["kyoto", "neon"] },
+      { type: "large-small", photoIds: ["alley", "lanterns"] },
+      { type: "triptych", photoIds: ["crossing", "kyoto", "neon"] },
     ],
   },
   {
@@ -41,9 +39,8 @@ export const sampleProjects = [
     coverPhotoId: "gtr",
     layouts: [
       { type: "full", photoIds: ["gtr"] },
-      { type: "pair", photoIds: ["beetle", "blue"] },
-      { type: "center", photoIds: ["white"] },
-      { type: "pair", photoIds: ["black", "red"] },
+      { type: "triptych", photoIds: ["beetle", "blue", "white"] },
+      { type: "large-small", photoIds: ["black", "red"] },
     ],
   },
 ];

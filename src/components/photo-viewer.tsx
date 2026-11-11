@@ -1,6 +1,6 @@
 "use client";
 
-import { PhotoImage } from "@/components/photo-image";
+import { ZoomablePhoto, type ZoomControls } from "./zoomable-photo";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Photo } from "@/lib/content";
 import { Arrow, Close } from "./icons";
@@ -15,7 +15,8 @@ export function PhotoViewer({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const closeAnimation = useRef<Animation | null>(null);
+  const zoom = useRef<ZoomControls | null>(null);
   const [index, setIndex] = useState(initialIndex);
   const [showInfo, setShowInfo] = useState(false);
   const photo = photos[index];
@@ -25,6 +26,24 @@ export function PhotoViewer({
     [photos.length],
   );
 
+  function requestClose() {
+    const element = dialog.current;
+    if (closeAnimation.current) return;
+    if (
+      !element ||
+      typeof element.animate !== "function" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      onClose();
+      return;
+    }
+    closeAnimation.current = element.animate(
+      [{ opacity: getComputedStyle(element).opacity }, { opacity: 0 }],
+      { duration: 180, easing: "ease-out", fill: "forwards" },
+    );
+    void closeAnimation.current.finished.then(onClose, () => {});
+  }
+
   useEffect(() => {
     const element = dialog.current;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -32,6 +51,8 @@ export function PhotoViewer({
     element?.showModal();
     document.body.style.overflow = "hidden";
     return () => {
+      closeAnimation.current?.cancel();
+      closeAnimation.current = null;
       element?.close();
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus({ preventScroll: true });
@@ -46,9 +67,32 @@ export function PhotoViewer({
       aria-describedby="viewer-caption"
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        requestClose();
       }}
       onKeyDown={(event) => {
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (
+          event.shiftKey &&
+          ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(
+            event.key,
+          )
+        ) {
+          event.preventDefault();
+          zoom.current?.pan(
+            event.key === "ArrowLeft"
+              ? 80
+              : event.key === "ArrowRight"
+                ? -80
+                : 0,
+            event.key === "ArrowUp" ? 80 : event.key === "ArrowDown" ? -80 : 0,
+          );
+          return;
+        }
+        if (["+", "=", "-", "0"].includes(event.key)) {
+          event.preventDefault();
+          if (event.key === "0") zoom.current?.reset();
+          else zoom.current?.zoom(event.key === "-" ? 1 / 1.5 : 1.5);
+        }
         if (event.key === "ArrowRight") {
           event.preventDefault();
           move(1);
@@ -65,30 +109,18 @@ export function PhotoViewer({
           {String(index + 1).padStart(2, "0")} /{" "}
           {String(photos.length).padStart(2, "0")}
         </span>
-        <button className="icon-button" onClick={onClose} aria-label="关闭大图">
+        <button
+          type="button"
+          className="icon-button"
+          onClick={requestClose}
+          aria-label="关闭大图"
+        >
           <Close />
         </button>
       </div>
-      <div
-        className="viewer-stage"
-        onTouchStart={(event) => {
-          if (event.touches.length === 1)
-            touchStart.current = {
-              x: event.touches[0].clientX,
-              y: event.touches[0].clientY,
-            };
-          else touchStart.current = null;
-        }}
-        onTouchEnd={(event) => {
-          if (!touchStart.current) return;
-          const dx = event.changedTouches[0].clientX - touchStart.current.x;
-          const dy = event.changedTouches[0].clientY - touchStart.current.y;
-          if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5)
-            move(dx < 0 ? 1 : -1);
-          touchStart.current = null;
-        }}
-      >
+      <div className="viewer-stage">
         <button
+          type="button"
           className="icon-button viewer-prev"
           onClick={() => move(-1)}
           aria-label="上一张照片"
@@ -96,17 +128,14 @@ export function PhotoViewer({
         >
           <Arrow direction="left" />
         </button>
-        <div className="viewer-image">
-          <PhotoImage
-            key={photo.id}
-            photo={photo}
-            variant="lightbox"
-            fill
-            sizes="100vw"
-            loading="eager"
-          />
-        </div>
+        <ZoomablePhoto
+          photo={photo}
+          controls={zoom}
+          onPrevious={() => move(-1)}
+          onNext={() => move(1)}
+        />
         <button
+          type="button"
           className="icon-button viewer-next"
           onClick={() => move(1)}
           aria-label="下一张照片"
@@ -124,6 +153,7 @@ export function PhotoViewer({
           </p>
         </div>
         <button
+          type="button"
           className="info-button"
           aria-expanded={showInfo}
           aria-controls="photo-info"
@@ -151,12 +181,16 @@ export function PhotoViewer({
               <dd>{photo.capturedAt || "尚未录入"}</dd>
             </div>
             <div>
-              <dt>器材 / EXIF</dt>
+              <dt>机身</dt>
               <dd>
-                {[photo.cameraMake, photo.cameraModel, photo.lensModel]
+                {[photo.cameraMake, photo.cameraModel]
                   .filter(Boolean)
                   .join(" / ") || "尚未录入"}
               </dd>
+            </div>
+            <div>
+              <dt>镜头</dt>
+              <dd>{photo.lensModel || "尚未录入"}</dd>
             </div>
             <div>
               <dt>拍摄参数</dt>
@@ -172,6 +206,7 @@ export function PhotoViewer({
               </dd>
             </div>
           </dl>
+          {photo.tags.length > 0 && <p>{photo.tags.join(" · ")}</p>}
           {photo.description && <p>{photo.description}</p>}
           {photo.isSample && <p>此照片为网站演示素材。</p>}
           {photo.source && (

@@ -2,23 +2,38 @@
   "name": "photo-archive",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "WATCHPACK_POLLING=true next dev --webpack --hostname 127.0.0.1",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:init": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/init.ts",
+    "admin:create": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/create-admin.ts",
+    "test": "node --conditions=react-server --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@fontsource/instrument-serif": "^5.2.0",
     "@fontsource/inter": "^5.2.0",
+    "better-auth": "^1.7.20",
+    "better-sqlite3": "^13.0.3",
+    "exifr": "^7.1.3",
     "next": "^16.0.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.0"
   }
 }

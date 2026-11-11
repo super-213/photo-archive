@@ -6,6 +6,7 @@ import { site } from "@/lib/content";
 
 export function SiteHeader() {
   const pathname = usePathname();
+  if (pathname.startsWith("/admin")) return null;
   return (
     <header className="site-header page-gutter">
       <Link className="wordmark" href="/" aria-label={`${site.name} 首页`}>

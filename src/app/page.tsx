@@ -1,11 +1,15 @@
-import Image from "next/image";
+import { PhotoImage } from "@/components/photo-image";
 import Link from "next/link";
 import { Arrow } from "@/components/icons";
 import { ProjectCover } from "@/components/project-cover";
-import { getPhoto, projects } from "@/lib/content";
+import { getCover } from "@/lib/content";
+import { listProjects } from "@/lib/server/store";
+export const dynamic = "force-dynamic";
 
 export default function Home() {
-  const hero = getPhoto("fuji");
+  const projects = listProjects();
+  const firstProject = projects[0];
+  const hero = firstProject && getCover(firstProject);
   return (
     <>
       <section className="home-intro page-gutter">
@@ -28,25 +32,29 @@ export default function Home() {
           </a>
         </div>
       </section>
-      <section className="hero-section page-gutter" aria-label="首页精选摄影">
-        <Link href="/works/stillness" className="hero-photo">
-          <Image
-            src={hero.src}
-            alt={hero.alt}
-            fill
-            loading="eager"
-            fetchPriority="high"
-            sizes="100vw"
-          />
-          <span className="hero-open">
-            山水之间 <Arrow />
-          </span>
-        </Link>
-        <div className="image-credit">
-          <span>THE SHAPE OF STILLNESS</span>
-          <span>Landscape · 示例系列</span>
-        </div>
-      </section>
+      {hero && (
+        <section className="hero-section page-gutter" aria-label="首页精选摄影">
+          <Link href={`/works/${firstProject.slug}`} className="hero-photo">
+            <PhotoImage
+              photo={hero}
+              fill
+              loading="eager"
+              fetchPriority="high"
+              sizes="100vw"
+            />
+            <span className="hero-open">
+              {firstProject.subtitle || firstProject.title} <Arrow />
+            </span>
+          </Link>
+          <div className="image-credit">
+            <span>{firstProject.title.toUpperCase()}</span>
+            <span>
+              {firstProject.category}
+              {hero.isSample ? " · 示例系列" : ""}
+            </span>
+          </div>
+        </section>
+      )}
       <section className="selected-section page-gutter" id="selected">
         <div className="section-heading">
           <div>

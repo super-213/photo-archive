@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { PhotoImage } from "@/components/photo-image";
 import { useState } from "react";
 import type { Photo, PhotoLayout } from "@/lib/content";
 import { PhotoViewer } from "./photo-viewer";
@@ -23,11 +23,8 @@ export function PhotoGallery({
         }
         aria-label={`查看大图，${photo.title}`}
       >
-        <Image
-          src={photo.src}
-          alt={photo.alt}
-          width={photo.width}
-          height={photo.height}
+        <PhotoImage
+          photo={photo}
           loading={photo.id === photos[0]?.id ? "eager" : "lazy"}
           sizes={
             layouts

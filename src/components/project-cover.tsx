@@ -1,6 +1,6 @@
-import Image from "next/image";
+import { PhotoImage } from "@/components/photo-image";
 import Link from "next/link";
-import { getPhoto, getProjectPhotos, type Project } from "@/lib/content";
+import { getCover, getProjectPhotos, type Project } from "@/lib/content";
 import { Arrow } from "./icons";
 
 export function ProjectCover({
@@ -10,20 +10,15 @@ export function ProjectCover({
   project: Project;
   index: number;
 }) {
-  const cover = getPhoto(project.coverPhotoId);
+  const cover = getCover(project);
+  if (!cover) return null;
   return (
     <Link
       href={`/works/${project.slug}`}
-      className={`project-cover project-cover-${index + 1}`}
+      className={`project-cover project-cover-${(index % 3) + 1}`}
     >
       <div className="cover-image">
-        <Image
-          src={cover.src}
-          alt={cover.alt}
-          width={cover.width}
-          height={cover.height}
-          sizes="(max-width: 767px) 90vw, 60vw"
-        />
+        <PhotoImage photo={cover} sizes="(max-width: 767px) 90vw, 60vw" />
       </div>
       <div className="cover-caption">
         <div>

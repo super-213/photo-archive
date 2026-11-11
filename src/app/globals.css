@@ -1040,16 +1040,19 @@ em {
     padding-bottom: 65px;
   }
   .archive-toolbar {
+    flex-wrap: wrap;
     gap: 12px;
     padding-block: 13px;
   }
   .category-filters {
-    gap: 20px;
+    flex-wrap: wrap;
+    gap: 16px;
   }
   .category-filters button {
     font-size: 11px;
   }
   .year-filter {
+    margin-left: auto;
     gap: 0;
   }
   .year-filter label {

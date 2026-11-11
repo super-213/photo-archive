@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { ProjectCover } from "@/components/project-cover";
-import { projects } from "@/lib/content";
+import { listProjects } from "@/lib/server/store";
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Works · 精选系列" };
 
 export default function Works() {
+  const projects = listProjects();
   return (
     <div className="page-gutter works-page">
       <header className="page-heading">
@@ -20,6 +22,7 @@ export default function Works() {
           把片刻编成故事。
         </p>
       </header>
+      {!projects.length && <p className="empty-state">摄影系列正在整理中。</p>}
       <div className="editorial-grid">
         {projects.map((project, index) => (
           <ProjectCover key={project.slug} project={project} index={index} />

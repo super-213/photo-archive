@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import { PhotoImage } from "@/components/photo-image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Photo } from "@/lib/content";
 import { Arrow, Close } from "./icons";
@@ -97,10 +97,10 @@ export function PhotoViewer({
           <Arrow direction="left" />
         </button>
         <div className="viewer-image">
-          <Image
+          <PhotoImage
             key={photo.id}
-            src={photo.src}
-            alt={photo.alt}
+            photo={photo}
+            variant="lightbox"
             fill
             sizes="100vw"
             loading="eager"
@@ -119,7 +119,8 @@ export function PhotoViewer({
         <div id="viewer-caption">
           <h2>{photo.title}</h2>
           <p>
-            {photo.location} · {photo.year} 示例编排
+            {[photo.location, photo.year].filter(Boolean).join(" · ")}
+            {photo.isSample ? " · 示例编排" : ""}
           </p>
         </div>
         <button
@@ -147,17 +148,37 @@ export function PhotoViewer({
             </div>
             <div>
               <dt>拍摄日期</dt>
-              <dd>尚未录入</dd>
+              <dd>{photo.capturedAt || "尚未录入"}</dd>
             </div>
             <div>
               <dt>器材 / EXIF</dt>
-              <dd>尚未录入</dd>
+              <dd>
+                {[photo.cameraMake, photo.cameraModel, photo.lensModel]
+                  .filter(Boolean)
+                  .join(" / ") || "尚未录入"}
+              </dd>
+            </div>
+            <div>
+              <dt>拍摄参数</dt>
+              <dd>
+                {[
+                  photo.focalLength,
+                  photo.aperture,
+                  photo.shutterSpeed,
+                  photo.iso && `ISO ${photo.iso}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "尚未录入"}
+              </dd>
             </div>
           </dl>
-          <p>此照片为网站演示素材。</p>
-          <a href={photo.source} target="_blank" rel="noreferrer">
-            查看 Unsplash 来源 ↗
-          </a>
+          {photo.description && <p>{photo.description}</p>}
+          {photo.isSample && <p>此照片为网站演示素材。</p>}
+          {photo.source && (
+            <a href={photo.source} target="_blank" rel="noreferrer">
+              查看 Unsplash 来源 ↗
+            </a>
+          )}
         </aside>
       )}
     </dialog>

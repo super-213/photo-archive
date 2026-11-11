@@ -1,16 +1,19 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { categories, categoryLabels, publicPhotos, years } from "@/lib/content";
+import { categories, categoryLabels, type Photo } from "@/lib/content";
 import { PhotoGallery } from "./photo-gallery";
 
-export function Archive() {
+export function Archive({ photos }: { photos: Photo[] }) {
+  const years = [...new Set(photos.map((photo) => photo.year).filter(Boolean))]
+    .sort()
+    .reverse();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const category = searchParams.get("category") ?? "all";
   const year = searchParams.get("year") ?? "all";
-  const filtered = publicPhotos.filter(
+  const filtered = photos.filter(
     (photo) =>
       (category === "all" || photo.category === category) &&
       (year === "all" || photo.year === year),

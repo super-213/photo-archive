@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { listPhotos } from "@/lib/server/store";
 import { Archive } from "@/components/archive";
 
 export const metadata: Metadata = { title: "Archive · 照片档案" };
+
+export const dynamic = "force-dynamic";
 
 export default function ArchivePage() {
   return (
@@ -27,7 +30,7 @@ export default function ArchivePage() {
           </p>
         }
       >
-        <Archive />
+        <Archive photos={listPhotos()} />
       </Suspense>
     </div>
   );

@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
-import Image from "next/image";
+import { PhotoImage } from "@/components/photo-image";
 import Link from "next/link";
 import { Arrow } from "@/components/icons";
-import { getPhoto, publicPhotos } from "@/lib/content";
+import { listPhotos } from "@/lib/server/store";
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "About · 关于" };
 
 export default function About() {
-  const photo = getPhoto("lakeside");
+  const publicPhotos = listPhotos();
+  const photo =
+    publicPhotos.find((item) => item.id === "lakeside") || publicPhotos[0];
+  const samples = publicPhotos.filter((item) => item.isSample && item.source);
   return (
     <div className="about-page page-gutter">
       <header className="page-heading">
@@ -19,13 +23,9 @@ export default function About() {
         </div>
       </header>
       <section className="about-content">
-        <Image
-          src={photo.src}
-          alt={photo.alt}
-          width={photo.width}
-          height={photo.height}
-          sizes="(max-width: 767px) 90vw, 50vw"
-        />
+        {photo && (
+          <PhotoImage photo={photo} sizes="(max-width: 767px) 90vw, 50vw" />
+        )}
         <div>
           <h2>
             给经过的世界，
@@ -48,11 +48,11 @@ export default function About() {
         <p className="eyebrow">素材说明</p>
         <h2>示例照片与来源</h2>
         <p>
-          当前展示的 18 张照片来自
+          当前展示的 {samples.length} 张样例照片来自
           Unsplash，用于验证网站布局与交互。系列名称、描述与年份为演示编排，年份代表示例分组。拍摄日期和器材信息尚未录入。各照片版权归原作者所有。
         </p>
         <ul>
-          {publicPhotos.map((photo) => (
+          {samples.map((photo) => (
             <li key={photo.id}>
               <span>{photo.title}</span>
               <a href={photo.source} target="_blank" rel="noreferrer">

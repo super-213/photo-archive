@@ -1,7 +1,11 @@
+"use client";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { site } from "@/lib/content";
 
 export function SiteFooter() {
+  const pathname = usePathname();
+  if (pathname.startsWith("/admin")) return null;
   return (
     <footer className="site-footer page-gutter">
       <div>

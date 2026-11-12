@@ -3,19 +3,14 @@ import { ProjectCover } from "@/components/project-cover";
 import { listProjects } from "@/lib/server/store";
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Works · 精选系列" };
+export const metadata: Metadata = { title: "所见" };
 
 export default function Works() {
   const projects = listProjects();
   return (
     <div className="page-gutter works-page">
       <header className="page-heading">
-        <div>
-          <p className="eyebrow">精选摄影系列</p>
-          <h1>
-            Selected <em>works.</em>
-          </h1>
-        </div>
+        <h1>所见</h1>
       </header>
       {!projects.length && <p className="empty-state">摄影系列正在整理中。</p>}
       <div className="editorial-grid">

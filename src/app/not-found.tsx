@@ -6,7 +6,7 @@ export default function NotFound() {
       <p className="eyebrow">404</p>
       <h1>这一页还没有留下影像。</h1>
       <Link href="/works" className="text-link">
-        返回摄影系列 →
+        返回所见 →
       </Link>
     </div>
   );

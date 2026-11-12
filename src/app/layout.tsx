@@ -3,6 +3,8 @@ import "@fontsource/inter/latin-400.css";
 import "@fontsource/inter/latin-500.css";
 import "@fontsource/instrument-serif/latin-400.css";
 import "@fontsource/instrument-serif/latin-400-italic.css";
+import "@fontsource-variable/noto-serif-sc";
+import "@fontsource-variable/noto-sans-sc";
 import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
 import { site } from "@/lib/content";

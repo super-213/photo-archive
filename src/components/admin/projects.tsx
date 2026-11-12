@@ -113,7 +113,7 @@ export function ProjectEditor({
           </div>
           <div className="form-pair">
             <label>
-              中文副标题
+              副标题（选填）
               <input
                 name="subtitle"
                 defaultValue={project?.subtitle}

@@ -10,8 +10,8 @@ export function SiteHeader() {
     <header className="site-header page-gutter">
       <nav aria-label="主导航">
         {[
-          { href: "/works", label: "Works" },
-          { href: "/archive", label: "Archive" },
+          { href: "/works", label: "所见" },
+          { href: "/archive", label: "所藏" },
         ].map((link) => {
           const active = pathname.startsWith(link.href);
           return (

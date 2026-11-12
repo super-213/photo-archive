@@ -2,7 +2,7 @@ import { PhotoImage } from "@/components/photo-image";
 import Link from "next/link";
 import { Arrow } from "@/components/icons";
 import { ProjectCover } from "@/components/project-cover";
-import { getCover } from "@/lib/content";
+import { categoryLabels, getCover } from "@/lib/content";
 import { listProjects } from "@/lib/server/store";
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,11 @@ export default function Home() {
     <>
       <section className="home-intro page-gutter">
         <div className="home-heading">
-          <p className="eyebrow">A personal photographic journal</p>
+          <p className="eyebrow">个人摄影集</p>
           <h1>
-            A collection
+            收集
             <br />
-            of <em>moments.</em>
+            <em lang="zh-CN">片刻。</em>
           </h1>
         </div>
         <div className="home-intro-aside">
@@ -49,7 +49,7 @@ export default function Home() {
           <div className="image-credit">
             <span>{firstProject.title.toUpperCase()}</span>
             <span>
-              {firstProject.category}
+              {categoryLabels[firstProject.category]}
               {hero.isSample ? " · 示例系列" : ""}
             </span>
           </div>
@@ -58,11 +58,11 @@ export default function Home() {
       <section className="selected-section page-gutter" id="selected">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Selected works</p>
+            <p className="eyebrow">所见</p>
             <h2>目光所及。</h2>
           </div>
           <Link href="/works" className="text-link">
-            全部系列 <Arrow />
+            浏览所见 <Arrow />
           </Link>
         </div>
         <div className="editorial-grid">
@@ -72,15 +72,15 @@ export default function Home() {
         </div>
       </section>
       <section className="archive-invitation page-gutter">
-        <p className="eyebrow">The archive</p>
+        <p className="eyebrow">所藏</p>
         <Link href="/archive">
           <h2>
-            Every frame,
+            每一帧，
             <br />
-            <em>a little memory.</em>
+            <em lang="zh-CN">一段记忆。</em>
           </h2>
           <span className="text-link">
-            浏览全部照片 <Arrow />
+            浏览所藏 <Arrow />
           </span>
         </Link>
       </section>

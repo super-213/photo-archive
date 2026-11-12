@@ -1,3 +1,4 @@
+import "./environment.mjs";
 import { readFile } from "node:fs/promises";
 import { samplePhotos, sampleProjects } from "../src/lib/seed-content";
 import { importPhoto } from "../src/lib/server/media";

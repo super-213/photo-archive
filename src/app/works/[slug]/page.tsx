@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Arrow } from "@/components/icons";
 import { PhotoGallery } from "@/components/photo-gallery";
-import { getProjectPhotos } from "@/lib/content";
+import { categoryLabels, getProjectPhotos } from "@/lib/content";
 import { listProjects } from "@/lib/server/store";
 export const dynamic = "force-dynamic";
 
@@ -34,16 +34,16 @@ export default async function ProjectPage({
   return (
     <article className="project-page page-gutter">
       <Link className="text-link back-link" href="/works">
-        <Arrow direction="left" /> 全部系列
+        <Arrow direction="left" /> 返回所见
       </Link>
       <header className="project-heading">
-        <p className="eyebrow">
-          {project.subtitle} · {getProjectPhotos(project).length} photographs
-        </p>
+        {project.subtitle && (
+          <p className="eyebrow">{project.subtitle}</p>
+        )}
         <h1>{project.title}</h1>
         <div className="project-description">
           <span>
-            {project.category} / {project.year}
+            {categoryLabels[project.category]} / {project.year}
           </span>
           <p>{project.description}</p>
         </div>

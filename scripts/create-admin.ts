@@ -1,14 +1,16 @@
+import { saveEnvironment } from "./environment.mjs";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
+import { z } from "zod";
 import { createAuth, getAuth } from "../src/lib/server/auth";
 import { getDatabase } from "../src/lib/server/database";
 
-async function readPassword() {
+async function readPassword(label = "管理员密码（至少 12 位，输入隐藏） ") {
   if (!stdin.isTTY)
     throw new Error(
       "请在交互式终端运行，或通过 PHOTO_ARCHIVE_ADMIN_PASSWORD 环境变量提供密码",
     );
-  stdout.write("管理员密码（至少 12 位，输入隐藏） ");
+  stdout.write(label);
   stdin.setRawMode(true);
   stdin.resume();
   return new Promise<string>((resolve, reject) => {
@@ -41,25 +43,67 @@ async function readPassword() {
 }
 
 async function main() {
+  const ensure = process.argv.includes("--ensure");
+  const save = process.argv.includes("--save-env");
   await getAuth();
   const db = getDatabase();
-  if (db.prepare("SELECT 1 FROM administrator LIMIT 1").get())
+  const existing = db.prepare(
+    'SELECT "user".email FROM administrator JOIN "user" ON "user".id = administrator.user_id LIMIT 1',
+  ).get() as { email: string } | undefined;
+  if (existing) {
+    if (ensure) {
+      if (save) saveEnvironment({ PHOTO_ARCHIVE_ADMIN_EMAIL: existing.email });
+      console.log("管理员账号已存在。");
+      return;
+    }
     throw new Error("管理员账号已存在");
-  let email = process.env.PHOTO_ARCHIVE_ADMIN_EMAIL;
-  if (!email) {
-    const prompt = createInterface({ input: stdin, output: stdout });
-    email = (await prompt.question("管理员邮箱 ")).trim();
-    prompt.close();
   }
-  const password =
-    process.env.PHOTO_ARCHIVE_ADMIN_PASSWORD || (await readPassword());
+  if (save && !stdin.isTTY)
+    throw new Error("首次部署请在交互式终端中运行 ./start.sh，以创建管理员账号");
+  let email = process.env.PHOTO_ARCHIVE_ADMIN_EMAIL;
+  if (!email || save) {
+    const prompt = createInterface({ input: stdin, output: stdout });
+    try {
+      do {
+        const previous = process.env.PHOTO_ARCHIVE_ADMIN_EMAIL;
+        email = (await prompt.question(`管理员邮箱${previous ? ` [${previous}]` : ""} `)).trim() || previous;
+        if (z.email().safeParse(email).success) break;
+        console.log("请输入有效的邮箱地址。");
+      } while (true);
+    } finally {
+      prompt.close();
+    }
+  }
+  let password = process.env.PHOTO_ARCHIVE_ADMIN_PASSWORD;
+  if (!password && process.env.PHOTO_ARCHIVE_ADMIN_PASSWORD_BASE64)
+    password = Buffer.from(process.env.PHOTO_ARCHIVE_ADMIN_PASSWORD_BASE64, "base64").toString("utf8");
+  if (!password || save) {
+    do {
+      password = await readPassword();
+      if (password.length < 12) {
+        console.log("密码至少需要 12 位，请重新输入。");
+        continue;
+      }
+      if (!save || password === await readPassword("再次输入管理员密码 ")) break;
+      console.log("两次密码不一致，请重新输入。");
+    } while (true);
+  }
+  const validatedEmail = z.email().parse(email);
   const setup = createAuth(true);
   const result = await setup.api.signUpEmail({
-    body: { email, password, name: "站点管理员" },
+    body: { email: validatedEmail, password, name: "站点管理员" },
   });
   db.prepare("INSERT INTO administrator(user_id) VALUES (?)").run(
     result.user.id,
   );
+  if (save) {
+    saveEnvironment({
+      PHOTO_ARCHIVE_ADMIN_EMAIL: validatedEmail,
+      PHOTO_ARCHIVE_ADMIN_PASSWORD: null,
+      PHOTO_ARCHIVE_ADMIN_PASSWORD_BASE64: Buffer.from(password).toString("base64"),
+    });
+    console.log("管理员邮箱与初始密码已保存到 .env.local（权限 600）。");
+  }
   console.log("管理员已创建，可前往 /admin 登录。");
 }
 main().catch((error) => {

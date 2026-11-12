@@ -1,6 +1,6 @@
 import { PhotoImage } from "@/components/photo-image";
 import Link from "next/link";
-import { getCover, getProjectPhotos, type Project } from "@/lib/content";
+import { getCover, type Project } from "@/lib/content";
 import { Arrow } from "./icons";
 
 export function ProjectCover({
@@ -29,9 +29,9 @@ export function ProjectCover({
       </div>
       <div className="cover-caption">
         <div>
-          <span className="eyebrow">
-            {project.subtitle} / {getProjectPhotos(project).length} photographs
-          </span>
+          {project.subtitle && (
+            <span className="eyebrow">{project.subtitle}</span>
+          )}
           <h3>{project.title}</h3>
         </div>
         <Arrow />

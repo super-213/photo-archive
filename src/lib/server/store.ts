@@ -330,16 +330,25 @@ export function saveProject(
           members.some((photo) => photo?.visibility !== "public"))
       )
         throw new AppError("发布需要选择封面，且系列内所有照片均为公开状态");
-      if (
-        db
-          .prepare("SELECT id FROM project WHERE slug=? AND id!=?")
-          .get(input.slug, id || "")
-      )
-        throw new AppError("网址标识已被其他系列使用", 409);
       const projectId = id || randomUUID();
+      const baseSlug = input.title
+        .normalize("NFKD")
+        .toLowerCase()
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .slice(0, 90)
+        .replace(/^-+|-+$/g, "") || `series-${projectId}`;
+      let slug = input.slug || previous?.slug || baseSlug;
+      const slugExists = db.prepare("SELECT id FROM project WHERE slug=? AND id!=?");
+      let suffix = 2;
+      while (slugExists.get(slug, projectId)) {
+        if (input.slug) throw new AppError("网址标识已被其他系列使用", 409);
+        slug = `${baseSlug}-${suffix++}`;
+      }
       const { items, version, ...fields } = input;
       const values = {
         ...fields,
+        slug,
         id: projectId,
         coverPhotoId: input.coverPhotoId || null,
         coverLayout: input.coverLayout ?? previous?.coverLayout ?? "lead",

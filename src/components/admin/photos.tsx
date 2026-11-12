@@ -213,7 +213,7 @@ export function PhotoManager({ initialPhotos }: { initialPhotos: Photo[] }) {
                 height={photo.height}
               />
               <span>
-                <strong>{photo.title}</strong>
+                <strong>{photo.title || "未命名照片"}</strong>
                 <span>{visibilityLabels[photo.visibility]}</span>
               </span>
             </button>
@@ -262,7 +262,7 @@ function PhotoEditor({
     <section
       ref={editor}
       className="photo-editor"
-      aria-label={`编辑照片 ${photo.title}`}
+      aria-label={`编辑照片 ${photo.title || "未命名照片"}`}
     >
       <div className="editor-title">
         <h2>照片信息</h2>
@@ -303,29 +303,30 @@ function PhotoEditor({
           }
         }}
       >
+        <p className="admin-muted">
+          <span className="admin-required" aria-hidden="true">*</span> 为必填项
+        </p>
         <fieldset disabled={busy}>
           <label>
-            标题
+            标题（选填）
             <input
               name="title"
               defaultValue={photo.title}
-              required
               maxLength={200}
             />
           </label>
           <label>
-            图片替代文本
+            图片替代文本（选填）
             <input
               name="alt"
               defaultValue={photo.alt}
-              required
               maxLength={500}
             />
           </label>
           <div className="form-pair">
             <label>
-              公开状态
-              <select name="visibility" defaultValue={photo.visibility}>
+              <span>公开状态 <span className="admin-required" aria-hidden="true">*</span></span>
+              <select name="visibility" required defaultValue={photo.visibility}>
                 {Object.entries(visibilityLabels).map(([value, label]) => (
                   <option key={value} value={value}>
                     {label}
@@ -334,8 +335,8 @@ function PhotoEditor({
               </select>
             </label>
             <label>
-              题材
-              <select name="category" defaultValue={photo.category}>
+              <span>题材 <span className="admin-required" aria-hidden="true">*</span></span>
+              <select name="category" required defaultValue={photo.category}>
                 {categories.map((value) => (
                   <option key={value} value={value}>
                     {categoryLabels[value]}

@@ -33,6 +33,7 @@ const { createAuth, getAuth } = await import("../src/lib/server/auth");
 const mediaRoute = await import("../src/app/media/[id]/[variant]/route");
 const uploadRoute = await import("../src/app/api/admin/photos/route");
 const projectRoute = await import("../src/app/api/admin/projects/route");
+const projectDetailRoute = await import("../src/app/api/admin/projects/[id]/route");
 const photoRoute = await import("../src/app/api/admin/photos/[id]/route");
 const authRoute = await import("../src/app/api/auth/[...all]/route");
 const publicPhotoRoute = await import("../src/app/api/photos/route");
@@ -215,6 +216,67 @@ test("publishing validates membership, covers, and public status", async () => {
   assert.equal(rights.Artist, "测试作者");
   assert.equal(rights.Copyright, "© 测试作者 保留所有权利");
   assert.deepEqual(await sharp(downloadBytes).raw().toBuffer(), await sharp(buffer).raw().toBuffer());
+});
+
+test("photo editing accepts empty or omitted titles and alt text on published photos", async () => {
+  const original = getPhoto(photoId)!;
+  for (const blank of ["   ", undefined]) {
+    const current = getPhoto(photoId)!;
+    const response = await photoRoute.PUT(
+      new Request(`${origin}/api/admin/photos/${photoId}`, {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({ ...current, title: blank, alt: blank }),
+      }),
+      { params: Promise.resolve({ id: photoId }) },
+    );
+    assert.equal(response.status, 200);
+    const { photo } = await response.json();
+    assert.equal(photo.title, "");
+    assert.equal(photo.alt, "");
+    assert.equal(listPhotos().find((item) => item.id === photoId)!.title, "");
+    assert.equal(listProjects()[0].photos[0].alt, "");
+  }
+  updatePhoto(photoId, photoInput.parse({ ...original, version: getPhoto(photoId)!.version }));
+});
+
+test("series URLs are generated uniquely and remain stable when editing with an empty slug", async () => {
+  const template = listProjects(false).find((project) => project.id === projectId)!;
+  const created: { id: string; version: number }[] = [];
+  try {
+    for (const title of ["Same title", "Same title", "山水之间", "山水之间"]) {
+      const response = await projectRoute.POST(new Request(`${origin}/api/admin/projects`, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ ...template, version: 0, slug: "", title }),
+      }));
+      assert.equal(response.status, 201);
+      const project = await response.json();
+      created.push(project);
+      assert.match(project.slug, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+      assert.equal(listProjects().find((item) => item.id === project.id)!.slug, project.slug);
+
+      const edited = await projectDetailRoute.PUT(new Request(`${origin}/api/admin/projects/${project.id}`, {
+        method: "PUT",
+        headers: authHeaders,
+        body: JSON.stringify({ ...project, title: "修改后的名称", slug: undefined }),
+      }), { params: Promise.resolve({ id: project.id }) });
+      assert.equal(edited.status, 200);
+      const updated = await edited.json();
+      created[created.length - 1] = updated;
+      assert.equal(updated.slug, project.slug);
+    }
+    const slugs = listProjects(false).filter((project) => created.some((item) => item.id === project.id))
+      .map((project) => project.slug);
+    assert.equal(new Set(slugs).size, created.length);
+    const omitted = saveProject(null, projectInput.parse({ ...template, version: 0, slug: undefined }));
+    created.push(omitted);
+    assert.ok(omitted.slug);
+    assert.throws(() => saveProject(null, projectInput.parse({ ...template, version: 0 })), /网址标识已被/);
+    assert.equal(projectInput.safeParse({ ...template, slug: "Invalid / URL" }).success, false);
+  } finally {
+    for (const project of created) deleteProject(project.id, project.version);
+  }
 });
 
 test("cover art direction persists across reordering and legacy updates", () => {

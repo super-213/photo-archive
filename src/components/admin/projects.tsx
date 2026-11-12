@@ -27,6 +27,7 @@ export function ProjectEditor({
 }) {
   const router = useRouter();
   const [project, setProject] = useState(initialProject);
+  const [slug, setSlug] = useState(initialProject?.slug || "");
   const [items, setItems] = useState<ProjectPhotoInput[]>(
     initialProject?.items || [],
   );
@@ -87,6 +88,7 @@ export function ProjectEditor({
               },
             );
             setProject(result);
+            setSlug(result.slug);
             setItems(result.items);
             setCoverSettings({
               coverLayout: result.coverLayout,
@@ -108,10 +110,13 @@ export function ProjectEditor({
           }
         }}
       >
+        <p className="admin-muted">
+          <span className="admin-required" aria-hidden="true">*</span> 为必填项
+        </p>
         <fieldset disabled={busy} className="project-metadata">
           <div className="form-pair">
             <label>
-              系列名称
+              <span>系列名称 <span className="admin-required" aria-hidden="true">*</span></span>
               <input
                 name="title"
                 defaultValue={project?.title}
@@ -120,13 +125,13 @@ export function ProjectEditor({
               />
             </label>
             <label>
-              网址标识
+              网址标识（选填）
               <input
                 name="slug"
-                defaultValue={project?.slug}
-                required
+                value={slug}
+                onChange={(event) => setSlug(event.target.value)}
                 pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                placeholder="my-photo-series"
+                placeholder="留空即可，保存时自动填写"
                 maxLength={100}
               />
             </label>
@@ -156,9 +161,10 @@ export function ProjectEditor({
           </label>
           <div className="form-triple">
             <label>
-              题材
+              <span>题材 <span className="admin-required" aria-hidden="true">*</span></span>
               <select
                 name="category"
+                required
                 defaultValue={project?.category || "Landscape"}
               >
                 {categories.map((value) => (
@@ -169,14 +175,14 @@ export function ProjectEditor({
               </select>
             </label>
             <label>
-              状态
-              <select name="status" defaultValue={project?.status || "draft"}>
+              <span>状态 <span className="admin-required" aria-hidden="true">*</span></span>
+              <select name="status" required defaultValue={project?.status || "draft"}>
                 <option value="draft">草稿</option>
                 <option value="published">发布</option>
               </select>
             </label>
             <label>
-              展示顺序
+              <span>展示顺序 <span className="admin-required" aria-hidden="true">*</span></span>
               <input
                 name="sortOrder"
                 type="number"
@@ -251,7 +257,7 @@ export function ProjectEditor({
             </p>
           )}
           <p className="admin-muted">
-            发布时需要封面，且所有关联照片均为公开状态。展示顺序数值越小越靠前。
+            <span className="admin-required" aria-hidden="true">*</span> 发布时还需至少一张照片并选择封面，所有关联照片均须公开。展示顺序数值越小越靠前。
           </p>
           <button className="admin-button" disabled={busy}>
             {busy ? "正在保存…" : "保存系列"}

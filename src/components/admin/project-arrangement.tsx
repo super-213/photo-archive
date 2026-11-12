@@ -215,7 +215,7 @@ export function ProjectArrangement({
                         height={80}
                       />
                       <div className="project-photo-label">
-                        <strong>{photo.title}</strong>
+                        <strong>{photo.title || "未命名照片"}</strong>
                         <span className="admin-muted">
                           {photo.visibility === "public"
                             ? "公开"
@@ -228,7 +228,7 @@ export function ProjectArrangement({
                         <input
                           type="radio"
                           name="coverChoice"
-                          aria-label={`${photo.title} 设为封面`}
+                          aria-label={`${photo.title || "未命名照片"} 设为封面`}
                           checked={cover === id}
                           disabled={busy}
                           onChange={() => onCover(id)}
@@ -238,7 +238,7 @@ export function ProjectArrangement({
                       <div className="order-controls">
                         <button
                           type="button"
-                          aria-label={`上移 ${photo.title}`}
+                          aria-label={`上移 ${photo.title || "未命名照片"}`}
                           disabled={busy || photoIndex === 0}
                           onClick={() => movePhoto(group.id, id, -1)}
                         >
@@ -246,7 +246,7 @@ export function ProjectArrangement({
                         </button>
                         <button
                           type="button"
-                          aria-label={`下移 ${photo.title}`}
+                          aria-label={`下移 ${photo.title || "未命名照片"}`}
                           disabled={
                             busy || photoIndex === group.photoIds.length - 1
                           }
@@ -256,7 +256,7 @@ export function ProjectArrangement({
                         </button>
                         <button
                           type="button"
-                          aria-label={`移除 ${photo.title}`}
+                          aria-label={`移除 ${photo.title || "未命名照片"}`}
                           disabled={busy}
                           onClick={() => {
                             onChange((current) =>
@@ -337,7 +337,7 @@ export function ProjectArrangement({
               type="button"
               key={photo.id}
               disabled={busy}
-              aria-label={`添加 ${photo.title}`}
+              aria-label={`添加 ${photo.title || "未命名照片"}`}
               onClick={() => addPhoto(photo)}
             >
               <Image
@@ -346,7 +346,7 @@ export function ProjectArrangement({
                 width={photo.width}
                 height={photo.height}
               />
-              <span>{photo.title} +</span>
+              <span>{photo.title || "未命名照片"} +</span>
             </button>
           ))}
         </div>

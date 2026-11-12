@@ -5,8 +5,8 @@ const shortText = z.string().trim().max(200);
 export const captureDate = z.union([z.literal(""), z.iso.date()]);
 export const photoInput = z.object({
   version: z.number().int().positive(),
-  title: shortText.min(1),
-  alt: z.string().trim().min(1).max(500),
+  title: shortText.default(""),
+  alt: z.string().trim().max(500).default(""),
   description: z.string().trim().max(3000),
   category: z.enum(categories),
   visibility: z.enum(["draft", "public", "private"]),
@@ -31,12 +31,12 @@ export const projectInput = z
     slug: z
       .string()
       .trim()
-      .min(1)
       .max(100)
       .regex(
-        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        /^(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$/,
         "网址标识使用小写字母、数字和连字符",
-      ),
+      )
+      .default(""),
     title: shortText.min(1),
     subtitle: shortText,
     description: z.string().trim().max(3000),

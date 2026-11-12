@@ -197,7 +197,7 @@ export function ZoomablePhoto({
         ref={canvas}
         tabIndex={0}
         role="group"
-        aria-label={`${photo.title}，双击或加减键缩放，0 复位，Shift 加方向键平移`}
+        aria-label={`${photo.title || "照片"}，双击或加减键缩放，0 复位，Shift 加方向键平移`}
         data-zoomed={view.scale > 1}
         onDragStart={(event) => event.preventDefault()}
         onDoubleClick={(event) =>

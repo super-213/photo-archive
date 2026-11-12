@@ -51,6 +51,10 @@
   font-size: 12px;
   line-height: 1.8;
 }
+.admin-required {
+  color: #c62828;
+  font-weight: 600;
+}
 .admin-button {
   display: inline-flex;
   justify-content: center;

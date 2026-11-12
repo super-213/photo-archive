@@ -49,7 +49,7 @@ export function PhotoGallery({
         onClick={() =>
           setSelected(photoById.get(photo.id)!.index)
         }
-        aria-label={`查看大图，${photo.title}`}
+        aria-label={photo.title ? `查看大图，${photo.title}` : "查看大图"}
       >
         <PhotoImage
           photo={photo}

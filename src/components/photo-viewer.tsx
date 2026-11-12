@@ -146,7 +146,7 @@ export function PhotoViewer({
       </div>
       <div className="viewer-footer">
         <div id="viewer-caption">
-          <h2>{photo.title}</h2>
+          {photo.title && <h2>{photo.title}</h2>}
           <p>
             {[photo.location, photo.year].filter(Boolean).join(" · ")}
             {photo.isSample ? " · 示例编排" : ""}

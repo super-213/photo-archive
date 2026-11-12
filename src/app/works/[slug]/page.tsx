@@ -33,7 +33,7 @@ export default async function ProjectPage({
   const next = projects[(projects.indexOf(project) + 1) % projects.length];
   return (
     <article className="project-page page-gutter">
-      <Link className="text-link back-link" href="/works">
+      <Link className="text-link back-link" href="/">
         <Arrow direction="left" /> 返回所见
       </Link>
       <header className="project-heading">

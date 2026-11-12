@@ -7,6 +7,7 @@ import "@fontsource-variable/noto-serif-sc";
 import "@fontsource-variable/noto-sans-sc";
 import "./globals.css";
 import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
 import { site } from "@/lib/content";
 
 export const metadata: Metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({
         </a>
         <SiteHeader />
         <main id="main">{children}</main>
+        <SiteFooter />
       </body>
     </html>
   );

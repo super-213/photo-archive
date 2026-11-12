@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminRequest } from "./api";
+import { site } from "@/lib/content";
 
 export function AdminLogin({
   configured,
@@ -16,7 +17,7 @@ export function AdminLogin({
   return (
     <div className="admin-login">
       <a href="/" className="wordmark">
-        Photo Archive.
+        {site.wordmark}
       </a>
       <div>
         <p className="eyebrow">内容管理</p>

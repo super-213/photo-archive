@@ -2,12 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { site } from "@/lib/content";
 
 export function SiteHeader() {
   const pathname = usePathname();
   if (pathname.startsWith("/admin")) return null;
   return (
     <header className="site-header page-gutter">
+      <Link href="/" className="wordmark" aria-label={`${site.name}，返回所见`}>
+        {site.wordmark}
+      </Link>
       <nav aria-label="主导航">
         {[
           { href: "/", label: "所见" },

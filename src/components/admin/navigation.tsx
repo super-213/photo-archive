@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { adminRequest } from "./api";
+import { site } from "@/lib/content";
 
 export function AdminNavigation() {
   const path = usePathname();
@@ -11,7 +12,7 @@ export function AdminNavigation() {
   return (
     <header className="admin-header">
       <Link href="/admin/photos" className="wordmark">
-        Photo Archive.
+        {site.wordmark}
       </Link>
       <nav aria-label="管理导航">
         <Link

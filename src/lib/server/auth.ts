@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { getDatabase, dataDirectory } from "./database";
+import { site } from "../content";
 
 export const developmentAdminEmail = "admin@localhost.test";
 let developmentDatabase: Database.Database | undefined;
@@ -37,7 +38,7 @@ function getSecret() {
 
 export function createAuth(allowSetup = false) {
   return betterAuth({
-    appName: "Photo Archive",
+    appName: site.name,
     database: getAuthDatabase(),
     secret: getSecret(),
     baseURL:

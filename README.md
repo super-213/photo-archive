@@ -1,4 +1,6 @@
-# Photo Archive
+# 片隅 · Photo Archive
+
+品牌标识为「片隅.」，英文副标为「A PERSONAL PHOTOGRAPHY COLLECTION」。「所见」展示精选摄影系列，「所藏」保存全部公开摄影档案。
 
 本地运行的个人摄影作品集。使用 Next.js App Router、TypeScript、SQLite、Better Auth 和 Sharp。包含公开作品集和管理员后台，当前保留 18 张 Unsplash 样例照片与 3 个样例系列。
 

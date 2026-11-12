@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { ProjectCover } from "@/components/project-cover";
 import { listProjectCovers } from "@/lib/server/store";
+import { site } from "@/lib/content";
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "所见" };
+export const metadata: Metadata = { title: { absolute: `所见 | ${site.name}` } };
 
 export default function Works() {
   const projects = listProjectCovers();

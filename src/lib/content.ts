@@ -16,8 +16,10 @@ export const categoryLabels: Record<Category, string> = {
   Miniature: "模型",
 };
 export const site = {
-  name: "Photo Archive",
-  description: "风光、街巷与微小世界。一个持续生长的摄影作品集。",
+  name: "片隅",
+  wordmark: "片隅.",
+  tagline: "A PERSONAL PHOTOGRAPHY COLLECTION",
+  description: "片隅，个人摄影收藏。所见，精选摄影系列；所藏，留存拍摄的瞬间。",
 };
 
 export type Photo = {

@@ -10,6 +10,7 @@ import { getPhoto } from "./store";
 import { AppError, captureDate } from "./validation";
 import type { Category, Photo } from "../content";
 
+import { createCopyrightXmp, getCopyrightSettings, writeCopyrightDownload, type CopyrightSettings } from "./copyright";
 import { maxUploadBytes, maxInputPixels, previewEncodingVersion, previewVariants } from "../media-settings";
 export { maxUploadBytes } from "../media-settings";
 const formats: Record<string, string> = {
@@ -46,13 +47,14 @@ export async function importPhoto(buffer: Buffer, filename: string, options: Imp
   }
 }
 
-async function generatePreviews(source: string, directory: string) {
+async function generatePreviews(source: string, directory: string, copyright: CopyrightSettings | undefined) {
   for (const variant of previewVariants) {
-    await sharp(source, { limitInputPixels: maxInputPixels })
+    const image = sharp(source, { limitInputPixels: maxInputPixels })
       .rotate()
       .resize({ width: variant.width, height: variant.width, fit: "inside", withoutEnlargement: true })
-      .keepIccProfile()
-      .webp({ lossless: true, exact: true, effort: 4 })
+      .keepIccProfile();
+    if (copyright) image.withXmp(createCopyrightXmp(copyright));
+    await image.webp({ lossless: true, exact: true, effort: 4 })
       .toFile(path.join(directory, `${variant.name}.webp`));
   }
 }
@@ -91,7 +93,11 @@ export async function importPhotoFile(source: string, filename: string, options:
     const originalName = `original.${formats[format]}`;
     await rename(originalFile, path.join(staging, originalName));
     originalFile = path.join(staging, originalName);
-    await generatePreviews(originalFile, staging);
+    const copyright = options.isSample ? undefined : getCopyrightSettings();
+    const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
+    await generatePreviews(originalFile, staging, copyright);
+    const downloadName = `download.${formats[format]}`;
+    if (copyright) await writeCopyrightDownload(originalFile, path.join(staging, downloadName), mimeType, copyright);
     const exif = await exifr
       .parse(originalFile, {
         gps: false,
@@ -171,13 +177,17 @@ export async function importPhotoFile(source: string, filename: string, options:
           originalName,
           mimeType,
         );
+        if (copyright) {
+          db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version) VALUES (?,?,?,?,?)")
+            .run(id, "download", downloadName, mimeType, copyright.version);
+        }
         for (const variant of previewVariants)
           db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version) VALUES (?,?,?,?,?)").run(
             id,
             variant.name,
             `${variant.name}.webp`,
             "image/webp",
-            previewEncodingVersion,
+            encodingVersion,
           );
         committed = true;
         return { photo: getPhoto(id)!, duplicate: false };
@@ -200,12 +210,14 @@ export async function importPhotoFile(source: string, filename: string, options:
 export function getMediaRecord(id: string, variant: string) {
   return getDatabase()
     .prepare(
-      `SELECT p.visibility, p.storage_key, m.filename, m.mime_type FROM photo p
+      `SELECT p.visibility, p.storage_key, p.is_sample, m.filename, m.mime_type, m.encoding_version FROM photo p
     JOIN media_variant m ON m.photo_id=p.id WHERE p.id=? AND m.variant=?`,
     )
     .get(id, variant) as
     | {
         visibility: Photo["visibility"];
+        is_sample: number;
+        encoding_version: number;
         storage_key: string;
         filename: string;
         mime_type: string;
@@ -229,14 +241,17 @@ export async function rebuildPhotoPreviews(id: string) {
   const db = getDatabase();
   const original = getMediaRecord(id, "original");
   if (!original) throw new AppError("原图不存在", 404);
+  const copyright = original.is_sample ? undefined : getCopyrightSettings();
+  const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
+  await ensureCopyrightDownload(id);
   const current = db.prepare(
     "SELECT variant FROM media_variant WHERE photo_id=? AND encoding_version=? AND variant!='original'",
-  ).all(id, previewEncodingVersion) as { variant: string }[];
+  ).all(id, encodingVersion) as { variant: string }[];
   if (previewVariants.every((variant) => current.some((row) => row.variant === variant.name))) return false;
   const directory = path.join(mediaDirectory, original.storage_key);
   const temporary = await mkdtemp(path.join(directory, ".previews-"));
   try {
-    await generatePreviews(path.join(directory, original.filename), temporary);
+    await generatePreviews(path.join(directory, original.filename), temporary, copyright);
     for (const variant of previewVariants)
       await rename(path.join(temporary, `${variant.name}.webp`), path.join(directory, `${variant.name}.webp`));
     db.transaction(() => {
@@ -244,9 +259,41 @@ export async function rebuildPhotoPreviews(id: string) {
         VALUES (?,?,?,?,?) ON CONFLICT(photo_id,variant) DO UPDATE SET
         filename=excluded.filename,mime_type=excluded.mime_type,encoding_version=excluded.encoding_version`);
       for (const variant of previewVariants)
-        save.run(id, variant.name, `${variant.name}.webp`, "image/webp", previewEncodingVersion);
+        save.run(id, variant.name, `${variant.name}.webp`, "image/webp", encodingVersion);
     }).immediate();
     return true;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+const pendingDownloads = new Map<string, Promise<NonNullable<ReturnType<typeof getMediaRecord>> | undefined>>();
+
+export function ensureCopyrightDownload(id: string) {
+  const pending = pendingDownloads.get(id);
+  if (pending) return pending;
+  const task = createCopyrightDownload(id).finally(() => pendingDownloads.delete(id));
+  pendingDownloads.set(id, task);
+  return task;
+}
+
+async function createCopyrightDownload(id: string) {
+  const original = getMediaRecord(id, "original");
+  const copyright = getCopyrightSettings();
+  if (!original || original.is_sample || !copyright) return original;
+  const existing = getMediaRecord(id, "download");
+  if (existing?.encoding_version === copyright.version) return existing;
+  const directory = path.join(mediaDirectory, original.storage_key);
+  const temporary = await mkdtemp(path.join(directory, ".copyright-"));
+  const filename = `download${path.extname(original.filename)}`;
+  try {
+    await writeCopyrightDownload(path.join(directory, original.filename), path.join(temporary, filename), original.mime_type, copyright);
+    await rename(path.join(temporary, filename), path.join(directory, filename));
+    getDatabase().prepare(`INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version)
+      VALUES (?,?,?,?,?) ON CONFLICT(photo_id,variant) DO UPDATE SET
+      filename=excluded.filename,mime_type=excluded.mime_type,encoding_version=excluded.encoding_version`)
+      .run(id, "download", filename, original.mime_type, copyright.version);
+    return getMediaRecord(id, "download");
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

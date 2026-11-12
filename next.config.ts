@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["better-sqlite3", "exifr"],
+  serverExternalPackages: ["better-sqlite3", "exifr", "exiftool-vendored.pl"],
   images: { unoptimized: true, localPatterns: [] },
   async headers() {
     return [{

@@ -7,9 +7,12 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import exifr from "exifr";
 
 const directory = await mkdtemp(path.join(os.tmpdir(), "photo-archive-test-"));
 process.env.PHOTO_ARCHIVE_DATA_DIR = directory;
+process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = "测试作者";
+process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = "© 测试作者 保留所有权利";
 delete process.env.BETTER_AUTH_URL;
 const { importPhoto, rebuildPhotoPreviews, getMediaRecord, readMedia, maxUploadBytes } =
   await import("../src/lib/server/media");
@@ -206,7 +209,11 @@ test("publishing validates membership, covers, and public status", async () => {
   assert.equal(original.status, 200);
   assert.match(original.headers.get("content-disposition")!, /attachment/);
   assert.match(original.headers.get("cache-control")!, /no-store/);
-  assert.deepEqual(Buffer.from(await original.arrayBuffer()), buffer);
+  const downloadBytes = Buffer.from(await original.arrayBuffer());
+  const rights = await exifr.parse(downloadBytes, { pick: ["Artist", "Copyright"] });
+  assert.equal(rights.Artist, "测试作者");
+  assert.equal(rights.Copyright, "© 测试作者 保留所有权利");
+  assert.deepEqual(await sharp(downloadBytes).raw().toBuffer(), await sharp(buffer).raw().toBuffer());
 });
 
 test("photo associations have independent ordering and project deletion retains source photos", () => {
@@ -493,11 +500,13 @@ test("streamed uploads above 80 MiB preserve original bytes and support public r
   const original = await mediaRoute.GET(new Request(url), context);
   const downloaded = createHash("sha256");
   for await (const chunk of Readable.fromWeb(original.body! as Parameters<typeof Readable.fromWeb>[0])) downloaded.update(chunk);
-  assert.equal(downloaded.digest("hex"), (getDatabase().prepare("SELECT digest FROM photo WHERE id=?").get(photo.id) as { digest: string }).digest);
+  const downloadRecord = getMediaRecord(photo.id, "download")!;
+  const downloadBytes = await readMedia(downloadRecord);
+  assert.equal(downloaded.digest("hex"), createHash("sha256").update(downloadBytes).digest("hex"));
   const partial = await mediaRoute.GET(new Request(url, { headers: { range: "bytes=0-99" } }), context);
   assert.equal(partial.status, 206);
-  assert.equal(partial.headers.get("content-range"), `bytes 0-99/${buffer.length + 81 * padding.length}`);
-  assert.deepEqual(Buffer.from(await partial.arrayBuffer()), buffer.subarray(0, 100));
+  assert.equal(partial.headers.get("content-range"), `bytes 0-99/${downloadBytes.length}`);
+  assert.deepEqual(Buffer.from(await partial.arrayBuffer()), downloadBytes.subarray(0, 100));
   const invalid = await mediaRoute.GET(new Request(url, { headers: { range: "bytes=999999999-" } }), context);
   assert.equal(invalid.status, 416);
   updatePhoto(photo.id, photoInput.parse({ ...getPhoto(photo.id)!, visibility: "private" }));

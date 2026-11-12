@@ -1,6 +1,7 @@
+import { previewVariants } from "@/lib/media-settings";
 import { Readable } from "node:stream";
 import { getAdministrator } from "@/lib/server/auth";
-import { getMediaRecord, openMedia } from "@/lib/server/media";
+import { ensureCopyrightDownload, getMediaRecord, openMedia } from "@/lib/server/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,9 @@ const privateHeaders = {
 
 export async function GET(request: Request, context: MediaContext) {
   const { id, variant } = await context.params;
-  const record = getMediaRecord(id, variant);
+  if (variant !== "original" && !previewVariants.some((item) => item.name === variant))
+    return new Response(null, { status: 404, headers: privateHeaders });
+  let record = getMediaRecord(id, variant);
   if (!record) return new Response(null, { status: 404, headers: privateHeaders });
   const restricted = record.visibility !== "public";
   const administrator = restricted && await getAdministrator(request.headers);
@@ -23,6 +26,8 @@ export async function GET(request: Request, context: MediaContext) {
 
   let file: Awaited<ReturnType<typeof openMedia>> | undefined;
   try {
+    if (variant === "original") record = await ensureCopyrightDownload(id);
+    if (!record) return new Response(null, { status: 404, headers: privateHeaders });
     file = await openMedia(record);
     const stat = await file.stat();
     // Recheck after asynchronous file access, before honoring any cache validator.
@@ -35,7 +40,7 @@ export async function GET(request: Request, context: MediaContext) {
       ...privateHeaders,
       ...(cacheable ? { "Cache-Control": "private, no-cache", ETag: etag } : {}),
       "Content-Type": record.mime_type,
-      "Content-Disposition": `${variant === "original" ? "attachment" : "inline"}; filename="${record.filename}"`,
+      "Content-Disposition": `${variant === "original" ? "attachment" : "inline"}; filename="${variant === "original" ? `original${record.filename.slice(record.filename.lastIndexOf("."))}` : record.filename}"`,
     };
     const validators = request.headers.get("if-none-match")?.split(",").map((value) => value.trim().replace(/^W\//, ""));
     if (cacheable && validators?.some((value) => value === "*" || value === etag))

@@ -3,6 +3,7 @@ import { archivePageSize, buildPhotoLayouts } from "../content";
 import { randomUUID } from "node:crypto";
 import type {
   Category,
+  CoverSettings,
   PhotoPage,
   ProjectCoverData,
   Photo,
@@ -50,6 +51,10 @@ type ProjectRow = {
   category: Category;
   year: string;
   cover_photo_id: string | null;
+  cover_layout: CoverSettings["coverLayout"];
+  cover_ratio: CoverSettings["coverRatio"];
+  cover_focus_x: number;
+  cover_focus_y: number;
   status: Project["status"];
   sort_order: number;
   version: number;
@@ -214,6 +219,10 @@ function serializeProject(row: ProjectRow, members: ProjectMemberRow[]): Project
     category: row.category,
     year: row.year,
     coverPhotoId: row.cover_photo_id || "",
+    coverLayout: row.cover_layout,
+    coverRatio: row.cover_ratio,
+    coverFocusX: row.cover_focus_x,
+    coverFocusY: row.cover_focus_y,
     status: row.status,
     sortOrder: row.sort_order,
     version: row.version,
@@ -251,16 +260,20 @@ export function listProjects(publicOnly = true): Project[] {
 
 export function listProjectCovers(): ProjectCoverData[] {
   const rows = getDatabase().prepare(
-    `SELECT ${photoColumns}, pr.slug, pr.title AS project_title, pr.subtitle
+    `SELECT ${photoColumns}, pr.slug, pr.title AS project_title, pr.subtitle, pr.cover_layout, pr.cover_ratio, pr.cover_focus_x, pr.cover_focus_y
     FROM project pr JOIN photo p ON p.id=pr.cover_photo_id
     WHERE pr.id IN (SELECT p.id FROM project p WHERE ${publishedProjectWhere})
     ORDER BY pr.sort_order, pr.id`,
-  ).all() as (PhotoRow & { slug: string; project_title: string; subtitle: string })[];
+  ).all() as (PhotoRow & Pick<ProjectRow, "cover_layout" | "cover_ratio" | "cover_focus_x" | "cover_focus_y"> & { slug: string; project_title: string; subtitle: string })[];
   return rows.map((row) => ({
     slug: row.slug,
     title: row.project_title,
     subtitle: row.subtitle,
     cover: serializePhoto(row),
+    coverLayout: row.cover_layout,
+    coverRatio: row.cover_ratio,
+    coverFocusX: row.cover_focus_x,
+    coverFocusY: row.cover_focus_y,
   }));
 }
 
@@ -296,8 +309,8 @@ export function saveProject(
   const db = getDatabase();
   return db
     .transaction(() => {
+      const previous = id ? getProject(id) : undefined;
       if (id) {
-        const previous = getProject(id);
         if (!previous) throw new AppError("系列不存在", 404);
         if (previous.version !== input.version)
           throw new AppError("系列已被其他操作更新，请重新打开后编辑", 409);
@@ -329,19 +342,24 @@ export function saveProject(
         ...fields,
         id: projectId,
         coverPhotoId: input.coverPhotoId || null,
+        coverLayout: input.coverLayout ?? previous?.coverLayout ?? "lead",
+        coverRatio: input.coverRatio ?? previous?.coverRatio ?? "original",
+        coverFocusX: input.coverFocusX ?? previous?.coverFocusX ?? 50,
+        coverFocusY: input.coverFocusY ?? previous?.coverFocusY ?? 50,
         publishedAt:
           input.status === "published" ? new Date().toISOString() : null,
       };
       if (id)
         db.prepare(
           `UPDATE project SET slug=@slug, title=@title, subtitle=@subtitle, description=@description, category=@category,
-      year=@year, cover_photo_id=@coverPhotoId, status=@status, sort_order=@sortOrder, published_at=@publishedAt,
+      year=@year, cover_photo_id=@coverPhotoId, cover_layout=@coverLayout, cover_ratio=@coverRatio,
+      cover_focus_x=@coverFocusX, cover_focus_y=@coverFocusY, status=@status, sort_order=@sortOrder, published_at=@publishedAt,
       version=version+1 WHERE id=@id`,
         ).run(values);
       else
         db.prepare(
-          `INSERT INTO project(id,slug,title,subtitle,description,category,year,cover_photo_id,status,sort_order,published_at)
-      VALUES (@id,@slug,@title,@subtitle,@description,@category,@year,@coverPhotoId,@status,@sortOrder,@publishedAt)`,
+          `INSERT INTO project(id,slug,title,subtitle,description,category,year,cover_photo_id,cover_layout,cover_ratio,cover_focus_x,cover_focus_y,status,sort_order,published_at)
+      VALUES (@id,@slug,@title,@subtitle,@description,@category,@year,@coverPhotoId,@coverLayout,@coverRatio,@coverFocusX,@coverFocusY,@status,@sortOrder,@publishedAt)`,
         ).run(values);
       db.prepare("DELETE FROM project_photo WHERE project_id = ?").run(
         projectId,

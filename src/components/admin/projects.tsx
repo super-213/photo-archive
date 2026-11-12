@@ -6,11 +6,17 @@ import { useState } from "react";
 import {
   categories,
   categoryLabels,
+  coverLayouts,
+  coverLayoutLabels,
+  coverRatios,
+  coverRatioLabels,
+  type CoverSettings,
   type Photo,
   type Project,
   type ProjectPhotoInput,
 } from "@/lib/content";
 import { adminRequest } from "./api";
+import { CoverImage } from "../project-cover";
 
 export function ProjectEditor({
   initialProject,
@@ -25,6 +31,13 @@ export function ProjectEditor({
     initialProject?.items || [],
   );
   const [cover, setCover] = useState(initialProject?.coverPhotoId || "");
+  const [coverSettings, setCoverSettings] = useState<CoverSettings>({
+    coverLayout: initialProject?.coverLayout ?? "lead",
+    coverRatio: initialProject?.coverRatio ?? "original",
+    coverFocusX: initialProject?.coverFocusX ?? 50,
+    coverFocusY: initialProject?.coverFocusY ?? 50,
+  });
+  const coverPhoto = photos.find((photo) => photo.id === cover);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -69,11 +82,18 @@ export function ProjectEditor({
                 version: project?.version || 0,
                 sortOrder: Number(data.sortOrder),
                 coverPhotoId: cover,
+                ...coverSettings,
                 items,
               },
             );
             setProject(result);
             setItems(result.items);
+            setCoverSettings({
+              coverLayout: result.coverLayout,
+              coverRatio: result.coverRatio,
+              coverFocusX: result.coverFocusX,
+              coverFocusY: result.coverFocusY,
+            });
             setNotice(
               result.status === "published"
                 ? "系列已发布，前台已更新。"
@@ -168,6 +188,49 @@ export function ProjectEditor({
             </label>
           </div>
         </fieldset>
+        <section className="project-cover-editor">
+          <div className="editor-title"><h2>所见封面</h2></div>
+          <fieldset disabled={busy}>
+            <div className="form-pair">
+              <label>
+                首页版位
+                <select value={coverSettings.coverLayout} onChange={(event) => setCoverSettings({
+                  ...coverSettings, coverLayout: event.target.value as CoverSettings["coverLayout"],
+                })}>
+                  {coverLayouts.map((value) => <option key={value} value={value}>{coverLayoutLabels[value]}</option>)}
+                </select>
+              </label>
+              <label>
+                封面比例
+                <select value={coverSettings.coverRatio} onChange={(event) => setCoverSettings({
+                  ...coverSettings, coverRatio: event.target.value as CoverSettings["coverRatio"],
+                })}>
+                  {coverRatios.map((value) => <option key={value} value={value}>{coverRatioLabels[value]}</option>)}
+                </select>
+              </label>
+            </div>
+            {coverSettings.coverRatio !== "original" && (
+              <div className="form-pair">
+                <label>
+                  水平裁切重心 · {coverSettings.coverFocusX}%
+                  <input type="range" min="0" max="100" value={coverSettings.coverFocusX}
+                    onChange={(event) => setCoverSettings({ ...coverSettings, coverFocusX: Number(event.target.value) })} />
+                </label>
+                <label>
+                  垂直裁切重心 · {coverSettings.coverFocusY}%
+                  <input type="range" min="0" max="100" value={coverSettings.coverFocusY}
+                    onChange={(event) => setCoverSettings({ ...coverSettings, coverFocusY: Number(event.target.value) })} />
+                </label>
+              </div>
+            )}
+          </fieldset>
+          {coverPhoto ? (
+            <div className={`cover-preview cover-preview-${coverSettings.coverLayout}`}>
+              <CoverImage photo={coverPhoto} settings={coverSettings} sizes="(max-width: 767px) 85vw, 600px" />
+            </div>
+          ) : <p className="admin-muted">在下方系列照片中选择封面后，即可预览。</p>}
+          <p className="admin-muted">版位随系列保存。调整展示顺序后仍使用该版位，照片原比例保留完整画面。</p>
+        </section>
         <ProjectArrangement
           items={items}
           onChange={setItems}

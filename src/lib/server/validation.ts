@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { categories, layoutTypes, layoutDefinitions } from "../content";
+import { categories, coverLayouts, coverRatios, layoutTypes, layoutDefinitions } from "../content";
 
 const shortText = z.string().trim().max(200);
 export const captureDate = z.union([z.literal(""), z.iso.date()]);
@@ -43,6 +43,10 @@ export const projectInput = z
     category: z.enum(categories),
     year: z.string().trim().max(30),
     coverPhotoId: z.string().max(100),
+    coverLayout: z.enum(coverLayouts).optional(),
+    coverRatio: z.enum(coverRatios).optional(),
+    coverFocusX: z.number().min(0).max(100).optional(),
+    coverFocusY: z.number().min(0).max(100).optional(),
     status: z.enum(["draft", "published"]),
     sortOrder: z.number().int().min(0).max(100000),
     items: z

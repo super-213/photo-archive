@@ -18,7 +18,8 @@ test("stage-two database migration preserves legacy associations, captions and f
     CREATE TABLE media_variant(photo_id TEXT, variant TEXT, filename TEXT, mime_type TEXT);
     CREATE TABLE photo(id TEXT PRIMARY KEY, visibility TEXT, category TEXT, uploaded_at TEXT);
     CREATE TABLE project(id TEXT PRIMARY KEY, status TEXT, sort_order INTEGER);
-    INSERT INTO photo(id) VALUES ('a'),('b'); INSERT INTO project(id) VALUES ('series');
+    INSERT INTO photo(id) VALUES ('a'),('b');
+    INSERT INTO project(id,status,sort_order) VALUES ('series','published',0),('second','published',1),('third','published',2);
     CREATE TABLE project_photo (
       project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
       photo_id TEXT NOT NULL REFERENCES photo(id), sort_order INTEGER NOT NULL,
@@ -45,6 +46,11 @@ test("stage-two database migration preserves legacy associations, captions and f
     );
     assert.equal(rows[0].caption, "保留标题");
     assert.equal(rows[0].layout_group, null);
+    assert.deepEqual(db.prepare("SELECT cover_layout,cover_ratio,cover_focus_x,cover_focus_y FROM project ORDER BY sort_order").all(), [
+      { cover_layout: "lead", cover_ratio: "original", cover_focus_x: 50, cover_focus_y: 50 },
+      { cover_layout: "offset", cover_ratio: "original", cover_focus_x: 50, cover_focus_y: 50 },
+      { cover_layout: "wide", cover_ratio: "original", cover_focus_x: 50, cover_focus_y: 50 },
+    ]);
     db.prepare(
       "UPDATE project_photo SET layout_type='triptych',layout_group='group-a'",
     ).run();

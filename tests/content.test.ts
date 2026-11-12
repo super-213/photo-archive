@@ -21,6 +21,7 @@ const {
   getPhoto,
   updatePhoto,
   listProjects,
+  listProjectCovers,
   saveProject,
   deleteProject,
 } = await import("../src/lib/server/store");
@@ -214,6 +215,27 @@ test("publishing validates membership, covers, and public status", async () => {
   assert.equal(rights.Artist, "测试作者");
   assert.equal(rights.Copyright, "© 测试作者 保留所有权利");
   assert.deepEqual(await sharp(downloadBytes).raw().toBuffer(), await sharp(buffer).raw().toBuffer());
+});
+
+test("cover art direction persists across reordering and legacy updates", () => {
+  const current = listProjects(false).find((project) => project.id === projectId)!;
+  assert.equal(current.coverRatio, "original");
+  const updated = saveProject(current.id, projectInput.parse({
+    ...current, coverLayout: "offset", coverRatio: "portrait", coverFocusX: 0, coverFocusY: 100,
+  }));
+  const { coverLayout, coverRatio, coverFocusX, coverFocusY, ...legacy } = updated;
+  const reordered = saveProject(updated.id, projectInput.parse({ ...legacy, sortOrder: 42 }));
+  assert.deepEqual(
+    [reordered.coverLayout, reordered.coverRatio, reordered.coverFocusX, reordered.coverFocusY],
+    [coverLayout, coverRatio, coverFocusX, coverFocusY],
+  );
+  const cover = listProjectCovers().find((project) => project.slug === reordered.slug)!;
+  assert.deepEqual(
+    [cover.coverLayout, cover.coverRatio, cover.coverFocusX, cover.coverFocusY],
+    ["offset", "portrait", 0, 100],
+  );
+  for (const invalid of [{ coverLayout: "unknown" }, { coverRatio: "square" }, { coverFocusX: -1 }, { coverFocusY: 101 }])
+    assert.equal(projectInput.safeParse({ ...reordered, ...invalid }).success, false);
 });
 
 test("photo associations have independent ordering and project deletion retains source photos", () => {

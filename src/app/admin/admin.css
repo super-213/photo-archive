@@ -345,10 +345,26 @@
   margin-bottom: 40px !important;
 }
 .project-arrangement,
+.project-cover-editor,
 .project-library {
   border-top: 1px solid var(--color-border);
   padding-top: 26px;
   margin-top: 36px;
+}
+.project-cover-editor fieldset {
+  margin-top: 24px;
+}
+.cover-preview {
+  margin-block: 24px 16px;
+  width: 58%;
+}
+.cover-preview-offset {
+  width: 34%;
+  margin-left: auto;
+}
+.cover-preview-wide {
+  width: 68%;
+  margin-inline: auto;
 }
 .project-photo-list {
   list-style: none;
@@ -554,6 +570,15 @@
   .project-photo-list li {
     gap: 12px;
     flex-wrap: wrap;
+  }
+  .cover-preview {
+    width: 100%;
+  }
+  .cover-preview-offset {
+    width: 80%;
+  }
+  .cover-preview-wide {
+    width: 92%;
   }
   .project-photo-list img {
     width: 65px;

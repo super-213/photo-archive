@@ -81,7 +81,32 @@ export type ProjectPhotoInput = {
   caption: string;
   groupId?: string;
 };
-export type Project = {
+export const coverLayouts = ["lead", "offset", "wide"] as const;
+export const coverLayoutLabels = {
+  lead: "左侧大图",
+  offset: "右侧错位小图",
+  wide: "居中宽图",
+} as const;
+export const coverRatios = ["original", "landscape", "portrait", "wide"] as const;
+export const coverRatioLabels = {
+  original: "照片原比例",
+  landscape: "横幅 3∶2",
+  portrait: "竖幅 4∶5",
+  wide: "宽幅 16∶9",
+} as const;
+export const coverAspectRatios = {
+  landscape: "3 / 2",
+  portrait: "4 / 5",
+  wide: "16 / 9",
+} as const;
+export type CoverSettings = {
+  coverLayout: (typeof coverLayouts)[number];
+  coverRatio: (typeof coverRatios)[number];
+  coverFocusX: number;
+  coverFocusY: number;
+};
+
+export type Project = CoverSettings & {
   id: string;
   slug: string;
   title: string;
@@ -139,7 +164,7 @@ export type PhotoPage = {
   nextCursor: string | null;
 };
 
-export type ProjectCoverData = {
+export type ProjectCoverData = CoverSettings & {
   slug: string;
   title: string;
   subtitle: string;

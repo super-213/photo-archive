@@ -104,6 +104,23 @@ export function getDatabase() {
     db.exec("ALTER TABLE media_variant ADD COLUMN encoding_version INTEGER NOT NULL DEFAULT 1");
     db.prepare("INSERT INTO schema_migration VALUES (4, ?)").run(new Date().toISOString());
   }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 5").get()) return;
+    db.exec(`
+      ALTER TABLE project ADD COLUMN cover_layout TEXT NOT NULL DEFAULT 'lead' CHECK (cover_layout IN ('lead','offset','wide'));
+      ALTER TABLE project ADD COLUMN cover_ratio TEXT NOT NULL DEFAULT 'original' CHECK (cover_ratio IN ('original','landscape','portrait','wide'));
+      ALTER TABLE project ADD COLUMN cover_focus_x REAL NOT NULL DEFAULT 50 CHECK (cover_focus_x BETWEEN 0 AND 100);
+      ALTER TABLE project ADD COLUMN cover_focus_y REAL NOT NULL DEFAULT 50 CHECK (cover_focus_y BETWEEN 0 AND 100);
+      WITH positions AS (
+        SELECT id, (ROW_NUMBER() OVER (PARTITION BY status ORDER BY sort_order, id) - 1) % 3 AS position FROM project
+      )
+      UPDATE project SET cover_layout = (
+        SELECT CASE position WHEN 1 THEN 'offset' WHEN 2 THEN 'wide' ELSE 'lead' END
+        FROM positions WHERE positions.id = project.id
+      );
+    `);
+    db.prepare("INSERT INTO schema_migration VALUES (5, ?)").run(new Date().toISOString());
+  }).immediate();
   database = db;
   return db;
 }

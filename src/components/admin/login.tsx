@@ -46,8 +46,8 @@ export function AdminLogin({
             });
             router.replace("/admin/photos");
             router.refresh();
-          } catch {
-            setError("登录失败，请检查账号和密码。多次尝试后请稍后重试。");
+          } catch (error) {
+            setError(error instanceof Error ? error.message : "登录失败，请稍后重试。");
           } finally {
             setBusy(false);
           }

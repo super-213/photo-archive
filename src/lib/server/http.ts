@@ -2,21 +2,17 @@ import "server-only";
 import { ZodError } from "zod";
 import { getAdministrator } from "./auth";
 import { AppError } from "./validation";
+import { getRequestOrigin } from "./origins";
+
+export function requireSameOrigin(request: Request) {
+  if (request.headers.get("origin") !== getRequestOrigin(request))
+    throw new AppError("请求来源校验失败，请从站点管理页面操作", 403);
+}
 
 export async function requireAdministrator(request: Request) {
   const user = await getAdministrator(request.headers);
   if (!user) throw new AppError("请先登录管理员账号", 401);
-  if (!["GET", "HEAD"].includes(request.method)) {
-    const origin = request.headers.get("origin");
-    const host = request.headers.get("host") || new URL(request.url).host;
-    const expected = process.env.BETTER_AUTH_URL
-      ? new URL(process.env.BETTER_AUTH_URL).origin
-      : /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)
-        ? `http://${host}`
-        : "";
-    if (origin !== expected)
-      throw new AppError("请求来源校验失败，请从站点管理页面操作", 403);
-  }
+  if (!["GET", "HEAD"].includes(request.method)) requireSameOrigin(request);
   return user;
 }
 export function json(data: unknown, status = 200) {

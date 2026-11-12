@@ -7,6 +7,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { getDatabase, dataDirectory } from "./database";
 import { site } from "../content";
+import { getRequestOrigin } from "./origins";
 
 export const developmentAdminEmail = "admin@localhost.test";
 let developmentDatabase: Database.Database | undefined;
@@ -36,13 +37,13 @@ function getSecret() {
   return readFileSync(filename, "utf8").trim();
 }
 
-export function createAuth(allowSetup = false) {
+export function createAuth(allowSetup = false, origin?: string) {
   return betterAuth({
     appName: site.name,
     database: getAuthDatabase(),
     secret: getSecret(),
     baseURL:
-      process.env.BETTER_AUTH_URL ||
+      origin || process.env.BETTER_AUTH_URL ||
       (allowSetup
         ? "http://localhost"
         : { allowedHosts: ["localhost:*", "127.0.0.1:*"], protocol: "http" }),
@@ -67,10 +68,15 @@ export function createAuth(allowSetup = false) {
   });
 }
 
-let instance: ReturnType<typeof createAuth> | undefined;
+const instances = new Map<string, ReturnType<typeof createAuth>>();
 let initialized: Promise<void> | undefined;
-export async function getAuth() {
-  instance ??= createAuth();
+export async function getAuth(source?: Headers | Request) {
+  const origin = source ? getRequestOrigin(source) : "";
+  let instance = instances.get(origin);
+  if (!instance) {
+    instance = createAuth(false, origin || undefined);
+    instances.set(origin, instance);
+  }
   initialized ??= getMigrations(instance.options)
     .then(({ runMigrations }) => runMigrations())
     .then(async () => {
@@ -104,7 +110,7 @@ export async function getAuth() {
 
 export async function getAdministrator(headers: Headers) {
   if (!headers.get("cookie")) return null;
-  const auth = await getAuth();
+  const auth = await getAuth(headers);
   const session = await auth.api.getSession({ headers });
   if (
     process.env.NODE_ENV === "development" &&

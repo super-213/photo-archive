@@ -1,5 +1,5 @@
 import { developmentAdminEmail, getAuth } from "@/lib/server/auth";
-import { apiAction, json } from "@/lib/server/http";
+import { apiAction, json, requireSameOrigin } from "@/lib/server/http";
 
 export const runtime = "nodejs";
 async function handle(request: Request) {
@@ -7,6 +7,7 @@ async function handle(request: Request) {
     const endpoint = new URL(request.url).pathname.replace("/api/auth/", "");
     if (!["sign-in/email", "sign-out", "get-session"].includes(endpoint))
       return json({ error: "此认证接口未启用" }, 404);
+    if (request.method === "POST") requireSameOrigin(request);
     if (
       process.env.NODE_ENV === "development" &&
       request.method === "POST" &&
@@ -16,7 +17,7 @@ async function handle(request: Request) {
       if (body?.email === "admin") body.email = developmentAdminEmail;
       request = new Request(request, { body: JSON.stringify(body) });
     }
-    const response = await (await getAuth()).handler(request);
+    const response = await (await getAuth(request)).handler(request);
     response.headers.set("Cache-Control", "private, no-store");
     return response;
   });

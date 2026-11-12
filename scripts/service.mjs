@@ -117,7 +117,7 @@ function checkPort(port) {
         ? `端口 ${port} 已被占用`
         : `无法监听端口 ${port}，${error.message}`,
     )));
-    probe.listen(port, "127.0.0.1", () => probe.close(resolve));
+    probe.listen(port, "0.0.0.0", () => probe.close(resolve));
   });
 }
 

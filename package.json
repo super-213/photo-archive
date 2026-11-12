@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "WATCHPACK_POLLING=true next dev --webpack --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start --hostname 127.0.0.1",
+    "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "db:init": "node --conditions=react-server --import tsx scripts/init.ts",
     "media:rebuild": "node --conditions=react-server --import tsx scripts/rebuild-media.ts",

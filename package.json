@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "db:init": "node --conditions=react-server --import tsx scripts/init.ts",
     "media:rebuild": "node --conditions=react-server --import tsx scripts/rebuild-media.ts",
+    "photos:import": "node --conditions=react-server --import tsx scripts/import-folder.ts",
     "admin:create": "node --conditions=react-server --import tsx scripts/create-admin.ts",
     "test": "node --conditions=react-server --import tsx --test tests/*.test.ts"
   },

@@ -121,6 +121,20 @@ export function getDatabase() {
     `);
     db.prepare("INSERT INTO schema_migration VALUES (5, ?)").run(new Date().toISOString());
   }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 6").get()) return;
+    db.exec(`CREATE TABLE folder_import (
+      file_path TEXT PRIMARY KEY,
+      signature TEXT NOT NULL,
+      observed_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('waiting','processing','imported','duplicate','error')),
+      owner_pid INTEGER,
+      photo_id TEXT REFERENCES photo(id) ON DELETE SET NULL,
+      error TEXT NOT NULL DEFAULT ''
+    )`);
+    db.prepare("INSERT INTO schema_migration VALUES (6, ?)").run(new Date().toISOString());
+  }).immediate();
   database = db;
   return db;
 }

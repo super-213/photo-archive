@@ -234,6 +234,20 @@
   align-items: start;
   gap: 32px;
 }
+.admin-folder-import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 14px 24px;
+  margin-block: 20px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+}
+.admin-folder-import > div { flex: 1; min-width: 0; }
+.admin-folder-import p { margin-top: 8px; }
+.admin-folder-import code { overflow-wrap: anywhere; }
+.admin-folder-import details { flex-basis: 100%; }
 .admin-photo-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

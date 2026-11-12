@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { categories, categoryLabels, type Photo } from "@/lib/content";
 import { maxUploadBytes } from "@/lib/media-settings";
 import { adminRequest } from "./api";
+import type { getFolderImportStatus } from "@/lib/server/folder-import";
 
 const visibilityLabels = { draft: "草稿", public: "公开", private: "私有" };
 type UploadItem = {
@@ -13,7 +14,12 @@ type UploadItem = {
   message: string;
 };
 
-export function PhotoManager({ initialPhotos }: { initialPhotos: Photo[] }) {
+type FolderImportStatus = ReturnType<typeof getFolderImportStatus>;
+
+export function PhotoManager({ initialPhotos, initialFolderImport }: {
+  initialPhotos: Photo[];
+  initialFolderImport: FolderImportStatus;
+}) {
   const [photos, setPhotos] = useState(initialPhotos);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
@@ -21,6 +27,8 @@ export function PhotoManager({ initialPhotos }: { initialPhotos: Photo[] }) {
   const [queue, setQueue] = useState<UploadItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [folderImport, setFolderImport] = useState(initialFolderImport);
+  const [refreshing, setRefreshing] = useState(false);
   const nextId = useRef(0);
   const selected = photos.find((photo) => photo.id === selectedId);
   const visible = photos.filter(
@@ -127,6 +135,41 @@ export function PhotoManager({ initialPhotos }: { initialPhotos: Photo[] }) {
       <p className="admin-upload-hint">
         JPEG / PNG / WebP / AVIF / TIFF · 单张最大 256 MiB · 支持多选
       </p>
+      <section className="admin-folder-import" aria-label="文件夹导入">
+        <div>
+          <strong>文件夹导入{folderImport.enabled ? "" : "（自动扫描已暂停）"}</strong>
+          <p className="admin-muted">将照片或子文件夹复制到服务器上的 <code>{folderImport.directory}</code>，复制稳定后自动导入为草稿，源文件保留。</p>
+          <p className="admin-muted" aria-live="polite">
+            等待 {folderImport.counts.waiting} · 处理中 {folderImport.counts.processing} · 已导入 {folderImport.counts.imported} · 重复 {folderImport.counts.duplicate} · 失败 {folderImport.counts.error}
+          </p>
+        </div>
+        <button type="button" className="admin-small-button" disabled={refreshing || uploading}
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              const [updatedPhotos, status] = await Promise.all([
+                adminRequest<Photo[]>("/api/admin/photos"),
+                adminRequest<FolderImportStatus>("/api/admin/imports"),
+              ]);
+              setPhotos(updatedPhotos);
+              setFolderImport(status);
+              setNotice("已刷新照片与导入进度");
+            } catch (error) {
+              setNotice(error instanceof Error ? error.message : "刷新失败，请重试");
+            } finally {
+              setRefreshing(false);
+            }
+          }}>
+          {refreshing ? "正在刷新…" : "刷新导入结果"}
+        </button>
+        {folderImport.counts.error > 0 && <details>
+          <summary>查看导入失败原因</summary>
+          {folderImport.errors.map((entry) => (
+            <p key={entry.file} className="admin-error">{entry.file}：{entry.error}</p>
+          ))}
+          <p className="admin-muted">显示最近 20 个失败文件。替换或重新复制后会自动重试。完整记录保存在数据库，最近记录见导入文件夹内的“导入记录.json”。</p>
+        </details>}
+      </section>
       {queue.length > 0 && (
         <section
           className="upload-queue"

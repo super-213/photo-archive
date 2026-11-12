@@ -66,7 +66,7 @@ export function Archive({ category, initialPage }: {
         }}
       >
         <p className="archive-status" role="status" aria-live="polite">
-          {navigating ? "正在加载照片…" : `${initialPage.total} 张照片`}
+          {navigating ? "正在加载照片…" : ""}
         </p>
         <button
           type="button"

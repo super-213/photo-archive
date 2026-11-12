@@ -49,3 +49,32 @@ export async function apiAction(action: () => Promise<Response> | Response) {
     return json({ error: "操作失败，请稍后重试并检查服务日志" }, 500);
   }
 }
+
+export async function readBody(request: Request, limit: number) {
+  if (Number(request.headers.get("content-length")) > limit)
+    throw new AppError("请求数据超过大小限制", 413);
+  if (!request.body) throw new AppError("请求数据不能为空");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > limit) {
+        await reader.cancel();
+        throw new AppError("请求数据超过大小限制", 413);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, size);
+}
+
+export async function readJson(request: Request) {
+  const buffer = await readBody(request, 4 * 1024 * 1024);
+  return JSON.parse(buffer.toString("utf8"));
+}

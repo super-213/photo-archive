@@ -1,6 +1,7 @@
 import "server-only";
+import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp, { type Metadata } from "sharp";
 import exifr from "exifr";
@@ -9,7 +10,8 @@ import { getPhoto } from "./store";
 import { AppError, captureDate } from "./validation";
 import type { Category, Photo } from "../content";
 
-export const maxUploadBytes = 32 * 1024 * 1024;
+import { maxUploadBytes, maxInputPixels, previewEncodingVersion, previewVariants } from "../media-settings";
+export { maxUploadBytes } from "../media-settings";
 const formats: Record<string, string> = {
   jpeg: "jpg",
   png: "png",
@@ -30,69 +32,68 @@ type ImportOptions = {
   visibility?: Photo["visibility"];
 };
 
-export async function importPhoto(
-  buffer: Buffer,
-  filename: string,
-  options: ImportOptions = {},
-) {
+export async function importPhoto(buffer: Buffer, filename: string, options: ImportOptions = {}) {
   if (!buffer.length || buffer.length > maxUploadBytes)
-    throw new AppError("单张照片大小应在 1 字节至 32 MB 之间", 413);
-  const db = getDatabase();
-  const digest = createHash("sha256").update(buffer).digest("hex");
-  const existing = db
-    .prepare("SELECT id FROM photo WHERE digest=?")
-    .get(digest) as { id: string } | undefined;
-  if (existing) return { photo: getPhoto(existing.id)!, duplicate: true };
-  let metadata: Metadata;
+    throw new AppError("单张照片大小应在 1 字节至 256 MiB 之间", 413);
+  getDatabase();
+  const temporary = await mkdtemp(path.join(mediaDirectory, ".upload-"));
   try {
-    metadata = await sharp(buffer, { limitInputPixels: 80_000_000 }).metadata();
-  } catch {
-    throw new AppError(
-      "无法读取图片，请上传有效的 JPEG、PNG、WebP、AVIF 或 TIFF 照片",
-    );
+    const source = path.join(temporary, "source");
+    await writeFile(source, buffer, { mode: 0o600 });
+    return await importPhotoFile(source, filename, options);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
   }
-  if (
-    !metadata.format ||
-    !formats[metadata.format] ||
-    !metadata.width ||
-    !metadata.height ||
-    (metadata.pages || 1) > 1
-  ) {
-    throw new AppError("请选择单帧 JPEG、PNG、WebP、AVIF 或 TIFF 照片");
+}
+
+async function generatePreviews(source: string, directory: string) {
+  for (const variant of previewVariants) {
+    await sharp(source, { limitInputPixels: maxInputPixels })
+      .rotate()
+      .resize({ width: variant.width, height: variant.width, fit: "inside", withoutEnlargement: true })
+      .keepIccProfile()
+      .webp({ lossless: true, exact: true, effort: 4 })
+      .toFile(path.join(directory, `${variant.name}.webp`));
   }
-  const format =
-    metadata.format === "heif" && metadata.compression === "av1"
-      ? "avif"
-      : metadata.format;
-  const mimeType = format === "jpeg" ? "image/jpeg" : `image/${format}`;
+}
+
+export async function importPhotoFile(source: string, filename: string, options: ImportOptions = {}) {
+  const size = (await stat(source)).size;
+  if (!size || size > maxUploadBytes)
+    throw new AppError("单张照片大小应在 1 字节至 256 MiB 之间", 413);
+  const db = getDatabase();
   const id = options.id || randomUUID();
   const storageKey = randomUUID();
   const staging = await mkdtemp(path.join(mediaDirectory, ".upload-"));
   const destination = path.join(mediaDirectory, storageKey);
   let committed = false;
   try {
-    const originalName = `original.${formats[format]}`;
-    await writeFile(path.join(staging, originalName), buffer, { mode: 0o600 });
-    const variants = [
-      { name: "thumbnail", width: 420 },
-      { name: "grid", width: 1440 },
-      { name: "lightbox", width: 2560 },
-    ];
-    // Sharp discards source metadata by default. GPS and EXIF never enter preview files.
-    for (const variant of variants) {
-      await sharp(buffer, { limitInputPixels: 80_000_000 })
-        .rotate()
-        .resize({
-          width: variant.width,
-          height: variant.width,
-          fit: "inside",
-          withoutEnlargement: true,
-        })
-        .webp({ quality: variant.name === "lightbox" ? 90 : 82 })
-        .toFile(path.join(staging, `${variant.name}.webp`));
+    let originalFile = path.join(staging, "source");
+    await copyFile(source, originalFile);
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(originalFile)) hash.update(chunk);
+    const digest = hash.digest("hex");
+    const existing = db.prepare("SELECT id FROM photo WHERE digest=?").get(digest) as { id: string } | undefined;
+    if (existing) {
+      await rebuildPhotoPreviews(existing.id);
+      return { photo: getPhoto(existing.id)!, duplicate: true };
     }
+    let metadata: Metadata;
+    try {
+      metadata = await sharp(originalFile, { limitInputPixels: maxInputPixels }).metadata();
+    } catch {
+      throw new AppError("无法读取图片，请上传有效的 JPEG、PNG、WebP、AVIF 或 TIFF 照片，最大支持 2.4 亿像素");
+    }
+    if (!metadata.format || !formats[metadata.format] || !metadata.width || !metadata.height || (metadata.pages || 1) > 1)
+      throw new AppError("请选择单帧 JPEG、PNG、WebP、AVIF 或 TIFF 照片");
+    const format = metadata.format === "heif" && metadata.compression === "av1" ? "avif" : metadata.format;
+    const mimeType = format === "jpeg" ? "image/jpeg" : `image/${format}`;
+    const originalName = `original.${formats[format]}`;
+    await rename(originalFile, path.join(staging, originalName));
+    originalFile = path.join(staging, originalName);
+    await generatePreviews(originalFile, staging);
     const exif = await exifr
-      .parse(buffer, {
+      .parse(originalFile, {
         gps: false,
         reviveValues: false,
         pick: [
@@ -142,7 +143,7 @@ export async function importPhoto(
           width: rotated ? metadata.height : metadata.width,
           height: rotated ? metadata.width : metadata.height,
           mimeType,
-          fileSize: buffer.length,
+          fileSize: size,
           category: options.category || "Landscape",
           year: options.year || capturedAt.slice(0, 4),
           location: options.location || "",
@@ -164,18 +165,19 @@ export async function importPhoto(
           isSample: options.isSample ? 1 : 0,
           uploadedAt: new Date().toISOString(),
         });
-        db.prepare("INSERT INTO media_variant VALUES (?,?,?,?)").run(
+        db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type) VALUES (?,?,?,?)").run(
           id,
           "original",
           originalName,
           mimeType,
         );
-        for (const variant of variants)
-          db.prepare("INSERT INTO media_variant VALUES (?,?,?,?)").run(
+        for (const variant of previewVariants)
+          db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version) VALUES (?,?,?,?,?)").run(
             id,
             variant.name,
             `${variant.name}.webp`,
             "image/webp",
+            previewEncodingVersion,
           );
         committed = true;
         return { photo: getPhoto(id)!, duplicate: false };
@@ -217,4 +219,35 @@ export async function readMedia(
   return readFile(
     path.join(mediaDirectory, record.storage_key, record.filename),
   );
+}
+
+export function openMedia(record: NonNullable<ReturnType<typeof getMediaRecord>>) {
+  return open(path.join(mediaDirectory, record.storage_key, record.filename), "r");
+}
+
+export async function rebuildPhotoPreviews(id: string) {
+  const db = getDatabase();
+  const original = getMediaRecord(id, "original");
+  if (!original) throw new AppError("原图不存在", 404);
+  const current = db.prepare(
+    "SELECT variant FROM media_variant WHERE photo_id=? AND encoding_version=? AND variant!='original'",
+  ).all(id, previewEncodingVersion) as { variant: string }[];
+  if (previewVariants.every((variant) => current.some((row) => row.variant === variant.name))) return false;
+  const directory = path.join(mediaDirectory, original.storage_key);
+  const temporary = await mkdtemp(path.join(directory, ".previews-"));
+  try {
+    await generatePreviews(path.join(directory, original.filename), temporary);
+    for (const variant of previewVariants)
+      await rename(path.join(temporary, `${variant.name}.webp`), path.join(directory, `${variant.name}.webp`));
+    db.transaction(() => {
+      const save = db.prepare(`INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version)
+        VALUES (?,?,?,?,?) ON CONFLICT(photo_id,variant) DO UPDATE SET
+        filename=excluded.filename,mime_type=excluded.mime_type,encoding_version=excluded.encoding_version`);
+      for (const variant of previewVariants)
+        save.run(id, variant.name, `${variant.name}.webp`, "image/webp", previewEncodingVersion);
+    }).immediate();
+    return true;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 }

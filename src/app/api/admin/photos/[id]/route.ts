@@ -1,4 +1,4 @@
-import { apiAction, json, requireAdministrator } from "@/lib/server/http";
+import { apiAction, json, readJson, requireAdministrator } from "@/lib/server/http";
 import { updatePhoto } from "@/lib/server/store";
 import { photoInput } from "@/lib/server/validation";
 
@@ -9,6 +9,6 @@ export async function PUT(
   return apiAction(async () => {
     await requireAdministrator(request);
     const { id } = await context.params;
-    return json(updatePhoto(id, photoInput.parse(await request.json())));
+    return json(updatePhoto(id, photoInput.parse(await readJson(request))));
   });
 }

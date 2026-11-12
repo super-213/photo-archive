@@ -2,6 +2,7 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { categories, categoryLabels, type Photo } from "@/lib/content";
+import { maxUploadBytes } from "@/lib/media-settings";
 import { adminRequest } from "./api";
 
 const visibilityLabels = { draft: "草稿", public: "公开", private: "私有" };
@@ -41,8 +42,8 @@ export function PhotoManager({ initialPhotos }: { initialPhotos: Photo[] }) {
         ),
       );
       try {
-        if (!item.file.size || item.file.size > 32 * 1024 * 1024)
-          throw new Error("单张照片最大 32 MB");
+        if (!item.file.size || item.file.size > maxUploadBytes)
+          throw new Error("单张照片最大 256 MiB");
         const data = new FormData();
         data.set("file", item.file);
         const result = await adminRequest<{ photo: Photo; duplicate: boolean }>(
@@ -124,7 +125,7 @@ export function PhotoManager({ initialPhotos }: { initialPhotos: Photo[] }) {
         </label>
       </div>
       <p className="admin-upload-hint">
-        JPEG / PNG / WebP / AVIF / TIFF · 单张最大 32 MB · 支持多选
+        JPEG / PNG / WebP / AVIF / TIFF · 单张最大 256 MiB · 支持多选
       </p>
       {queue.length > 0 && (
         <section

@@ -25,6 +25,7 @@ export type Photo = {
   src: string;
   lightboxSrc: string;
   thumbnailSrc: string;
+  previewSrc?: string;
   title: string;
   alt: string;
   description: string;
@@ -127,3 +128,18 @@ export function buildPhotoLayouts(items: ProjectPhotoInput[]): PhotoLayout[] {
   }
   return layouts;
 }
+
+export const archivePageSize = 24;
+
+export type PhotoPage = {
+  photos: Photo[];
+  total: number;
+  nextCursor: string | null;
+};
+
+export type ProjectCoverData = {
+  slug: string;
+  title: string;
+  subtitle: string;
+  cover: Photo;
+};

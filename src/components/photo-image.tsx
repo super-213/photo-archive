@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type ImgHTMLAttributes } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ImgHTMLAttributes } from "react";
 import type { Photo } from "@/lib/content";
 
 type PhotoImageProps = {
@@ -29,13 +29,15 @@ export function PhotoImage({
   const sources = new Map<number, string>();
   for (const [size, source] of [
     [420, photo.thumbnailSrc],
+    [840, photo.previewSrc],
     [1440, photo.src],
     [2560, photo.lightboxSrc],
   ] as const) {
+    if (!source) continue;
     const width = Math.round(
       photo.width * Math.min(1, size / Math.max(photo.width, photo.height)),
     );
-    sources.set(width, source);
+    if (!sources.has(width)) sources.set(width, source);
   }
   return (
     <>
@@ -54,11 +56,10 @@ export function PhotoImage({
         alt={photo.alt}
         loading={loading}
         decoding="async"
-        style={
-          fill
-            ? { position: "absolute", inset: 0, width: "100%", height: "100%" }
-            : undefined
-        }
+        style={{
+          "--photo-aspect-ratio": `${photo.width} / ${photo.height}`,
+          ...(fill ? { position: "absolute", inset: 0, width: "100%", height: "100%" } : {}),
+        } as CSSProperties}
         {...props}
       />
       {status === "error" && (

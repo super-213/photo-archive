@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import path from "node:path";
 import { apiAction, json, requireAdministrator } from "@/lib/server/http";
 import { listPhotos } from "@/lib/server/store";
-import { importPhoto, maxUploadBytes } from "@/lib/server/media";
+import { mediaDirectory, getDatabase } from "@/lib/server/database";
+import { receivePhotoUpload } from "@/lib/server/upload";
+import { importPhotoFile } from "@/lib/server/media";
 import { AppError } from "@/lib/server/validation";
 
 export const runtime = "nodejs";
@@ -10,47 +14,24 @@ export async function GET(request: Request) {
     return json(listPhotos(false));
   });
 }
+let activeUploads = 0;
+const maxConcurrentUploads = 2;
+
 export async function POST(request: Request) {
   return apiAction(async () => {
     await requireAdministrator(request);
-    const limit = maxUploadBytes + 1024 * 1024;
-    if (Number(request.headers.get("content-length")) > limit)
-      throw new AppError("单次上传大小超过限制", 413);
-    if (!request.body) throw new AppError("请选择照片");
-    const reader = request.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let size = 0;
+    if (activeUploads >= maxConcurrentUploads)
+      throw new AppError("正在处理其他照片，请稍后重试", 429);
+    activeUploads++;
+    let temporary: string | undefined;
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.length;
-        if (size > limit) {
-          await reader.cancel();
-          throw new AppError("单次上传大小超过限制", 413);
-        }
-        chunks.push(value);
-      }
+      getDatabase();
+      temporary = await mkdtemp(path.join(mediaDirectory, ".upload-"));
+      const { source, filename } = await receivePhotoUpload(request, temporary);
+      return json(await importPhotoFile(source, filename), 201);
     } finally {
-      reader.releaseLock();
+      activeUploads--;
+      if (temporary) await rm(temporary, { recursive: true, force: true });
     }
-    let form: FormData;
-    try {
-      form = await new Request(request.url, {
-        method: "POST",
-        headers: request.headers,
-        body: Buffer.concat(chunks),
-      }).formData();
-    } catch {
-      throw new AppError("上传表单格式无效");
-    }
-    const files = form.getAll("file");
-    if (files.length !== 1 || !(files[0] instanceof File))
-      throw new AppError("每个上传请求需要包含一张照片");
-    const file = files[0];
-    return json(
-      await importPhoto(Buffer.from(await file.arrayBuffer()), file.name),
-      201,
-    );
   });
 }

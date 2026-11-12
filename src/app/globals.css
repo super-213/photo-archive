@@ -1018,3 +1018,27 @@ img[data-image-status="loaded"] {
     bottom: 10px;
   }
 }
+
+.archive-pagination {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-top: 32px;
+  color: var(--color-text-muted);
+}
+
+.photo-button img {
+  aspect-ratio: var(--photo-aspect-ratio);
+}
+
+.viewer-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+@media (max-width: 767px) {
+  .viewer-footer {
+    flex-wrap: wrap;
+  }
+}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiAction, json, requireAdministrator } from "@/lib/server/http";
+import { apiAction, json, readJson, requireAdministrator } from "@/lib/server/http";
 import { deleteProject, saveProject } from "@/lib/server/store";
 import { projectInput } from "@/lib/server/validation";
 
@@ -10,7 +10,7 @@ export async function PUT(
   return apiAction(async () => {
     await requireAdministrator(request);
     const { id } = await context.params;
-    return json(saveProject(id, projectInput.parse(await request.json())));
+    return json(saveProject(id, projectInput.parse(await readJson(request))));
   });
 }
 export async function DELETE(
@@ -22,7 +22,7 @@ export async function DELETE(
     const { id } = await context.params;
     const { version } = z
       .object({ version: z.number().int().positive() })
-      .parse(await request.json());
+      .parse(await readJson(request));
     deleteProject(id, version);
     return json({ ok: true });
   });

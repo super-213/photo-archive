@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { ProjectCover } from "@/components/project-cover";
-import { listProjects } from "@/lib/server/store";
+import { listProjectCovers } from "@/lib/server/store";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "所见" };
 
 export default function Works() {
-  const projects = listProjects();
+  const projects = listProjectCovers();
   return (
     <div className="page-gutter works-page">
       <header className="page-heading">

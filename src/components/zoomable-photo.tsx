@@ -46,14 +46,22 @@ export function ZoomablePhoto({
   const canvas = useRef<HTMLDivElement>(null);
   const [view, setView] = useState(initialTransform);
   const current = useRef(initialTransform);
+  const frame = useRef<number | null>(null);
   const [viewport, setViewport] = useState({ width: 1, height: 1 });
   const size = useRef(viewport);
   const pointers = useRef(new Map<number, PointerPosition>());
   const gesture = useRef<Gesture | null>(null);
 
+  function scheduleView() {
+    if (frame.current !== null) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      setView(current.current);
+    });
+  }
   function update(next: PhotoTransform) {
     current.current = constrainTransform(next, photo, size.current);
-    setView(current.current);
+    scheduleView();
   }
   function reset() {
     update(initialTransform);
@@ -144,11 +152,13 @@ export function ZoomablePhoto({
         photo,
         size.current,
       );
-      setView(current.current);
+      scheduleView();
       startGesture(gesture.current?.pinched);
     }
     element.addEventListener("wheel", wheel, { passive: false });
     return () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
       observer.disconnect();
       element.removeEventListener("wheel", wheel);
       pointers.current.clear();
@@ -279,7 +289,7 @@ export function ZoomablePhoto({
             photo={photo}
             variant="lightbox"
             fill
-            sizes={`${Math.ceil(viewport.width * view.scale)}px`}
+            sizes={`${Math.ceil(Math.min(viewport.width, viewport.height * photo.width / photo.height) * view.scale)}px`}
             loading="eager"
             fetchPriority="high"
           />

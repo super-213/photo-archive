@@ -40,3 +40,11 @@ export function saveEnvironment(values) {
     else process.env[key] = value;
   }
 }
+
+export function saveAdministratorEnvironment(email) {
+  saveEnvironment({
+    PHOTO_ARCHIVE_ADMIN_EMAIL: email,
+    PHOTO_ARCHIVE_ADMIN_PASSWORD: null,
+    PHOTO_ARCHIVE_ADMIN_PASSWORD_BASE64: null,
+  });
+}

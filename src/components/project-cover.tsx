@@ -1,16 +1,16 @@
 import { PhotoImage } from "@/components/photo-image";
 import Link from "next/link";
-import { getCover, type Project } from "@/lib/content";
+import type { ProjectCoverData } from "@/lib/content";
 import { Arrow } from "./icons";
 
 export function ProjectCover({
   project,
   index,
 }: {
-  project: Project;
+  project: ProjectCoverData;
   index: number;
 }) {
-  const cover = getCover(project);
+  const cover = project.cover;
   if (!cover) return null;
   return (
     <Link
@@ -20,10 +20,12 @@ export function ProjectCover({
       <div className="cover-image">
         <PhotoImage
           photo={cover}
+          loading={index === 0 ? "eager" : "lazy"}
+          fetchPriority={index === 0 ? "high" : "auto"}
           sizes={
             index % 3 === 1
-              ? "(max-width: 767px) 72vw, 34vw"
-              : "(max-width: 767px) 90vw, 60vw"
+              ? "(max-width: 767px) calc((100vw - 44px) * 0.8), (max-width: 1199px) 36vw, (min-width: 1778px) 450px, 30vw"
+              : "(max-width: 767px) calc(100vw - 44px), (min-width: 1778px) 960px, 60vw"
           }
         />
       </div>

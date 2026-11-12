@@ -83,3 +83,23 @@ test("deployment commands handle a fresh checkout and require a saved port befor
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("saving administrator configuration removes recoverable passwords and retains other settings", async () => {
+  const directory = await createFixture();
+  try {
+    const filename = path.join(directory, ".env.local");
+    await writeFile(filename, 'BETTER_AUTH_URL="https://photos.example.com"\nPHOTO_ARCHIVE_PORT=3001\nPHOTO_ARCHIVE_ADMIN_PASSWORD="old-password"\nPHOTO_ARCHIVE_ADMIN_PASSWORD_BASE64="b2xkLXBhc3N3b3Jk"\n');
+    await execute(process.execPath, ["--input-type=module", "-e", `
+      const { saveAdministratorEnvironment } = await import('./scripts/environment.mjs');
+      saveAdministratorEnvironment('owner@example.com');
+    `], { cwd: directory });
+    const contents = await readFile(filename, "utf8");
+    assert.doesNotMatch(contents, /^PHOTO_ARCHIVE_ADMIN_PASSWORD(?:_BASE64)?=/m);
+    assert.match(contents, /PHOTO_ARCHIVE_ADMIN_EMAIL="owner@example.com"/);
+    assert.match(contents, /BETTER_AUTH_URL="https:\/\/photos.example.com"/);
+    assert.match(contents, /PHOTO_ARCHIVE_PORT=3001/);
+    assert.equal((await stat(filename)).mode & 0o777, 0o600);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

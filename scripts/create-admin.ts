@@ -1,4 +1,4 @@
-import { saveEnvironment } from "./environment.mjs";
+import { saveAdministratorEnvironment } from "./environment.mjs";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { z } from "zod";
@@ -52,7 +52,7 @@ async function main() {
   ).get() as { email: string } | undefined;
   if (existing) {
     if (ensure) {
-      if (save) saveEnvironment({ PHOTO_ARCHIVE_ADMIN_EMAIL: existing.email });
+      if (save) saveAdministratorEnvironment(existing.email);
       console.log("管理员账号已存在。");
       return;
     }
@@ -97,12 +97,8 @@ async function main() {
     result.user.id,
   );
   if (save) {
-    saveEnvironment({
-      PHOTO_ARCHIVE_ADMIN_EMAIL: validatedEmail,
-      PHOTO_ARCHIVE_ADMIN_PASSWORD: null,
-      PHOTO_ARCHIVE_ADMIN_PASSWORD_BASE64: Buffer.from(password).toString("base64"),
-    });
-    console.log("管理员邮箱与初始密码已保存到 .env.local（权限 600）。");
+    saveAdministratorEnvironment(validatedEmail);
+    console.log("管理员邮箱已保存到 .env.local（权限 600），密码哈希已存入数据库。");
   }
   console.log("管理员已创建，可前往 /admin 登录。");
 }

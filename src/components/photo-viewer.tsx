@@ -152,15 +152,20 @@ export function PhotoViewer({
             {photo.isSample ? " · 示例编排" : ""}
           </p>
         </div>
-        <button
-          type="button"
-          className="info-button"
-          aria-expanded={showInfo}
-          aria-controls="photo-info"
-          onClick={() => setShowInfo(!showInfo)}
-        >
-          {showInfo ? "收起信息 −" : "照片信息 +"}
-        </button>
+        <div className="viewer-actions">
+          <a className="info-button" href={`/media/${photo.id}/original`} download>
+            下载原图
+          </a>
+          <button
+            type="button"
+            className="info-button"
+            aria-expanded={showInfo}
+            aria-controls="photo-info"
+            onClick={() => setShowInfo(!showInfo)}
+          >
+            {showInfo ? "收起信息 −" : "照片信息 +"}
+          </button>
+        </div>
       </div>
       {showInfo && (
         <aside className="photo-info" id="photo-info">
@@ -171,7 +176,7 @@ export function PhotoViewer({
               <dd>{photo.category}</dd>
             </div>
             <div>
-              <dt>展示尺寸</dt>
+              <dt>原图尺寸</dt>
               <dd>
                 {photo.width} × {photo.height}
               </dd>

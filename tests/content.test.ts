@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import { after, test } from "node:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -8,7 +11,7 @@ import sharp from "sharp";
 const directory = await mkdtemp(path.join(os.tmpdir(), "photo-archive-test-"));
 process.env.PHOTO_ARCHIVE_DATA_DIR = directory;
 delete process.env.BETTER_AUTH_URL;
-const { importPhoto, getMediaRecord, readMedia, maxUploadBytes } =
+const { importPhoto, rebuildPhotoPreviews, getMediaRecord, readMedia, maxUploadBytes } =
   await import("../src/lib/server/media");
 const {
   listPhotos,
@@ -194,15 +197,16 @@ test("publishing validates membership, covers, and public status", async () => {
     { params: Promise.resolve({ id: photoId, variant: "grid" }) },
   );
   assert.equal(response.status, 200);
-  assert.match(response.headers.get("Cache-Control")!, /no-store/);
-  assert.equal(
-    (
-      await mediaRoute.GET(new Request(`${origin}/media/${photoId}/original`), {
-        params: Promise.resolve({ id: photoId, variant: "original" }),
-      })
-    ).status,
-    404,
-  );
+  assert.equal(response.headers.get("Cache-Control"), "private, no-cache");
+  assert.ok(response.headers.get("etag"));
+  await response.arrayBuffer();
+  const original = await mediaRoute.GET(new Request(`${origin}/media/${photoId}/original`), {
+    params: Promise.resolve({ id: photoId, variant: "original" }),
+  });
+  assert.equal(original.status, 200);
+  assert.match(original.headers.get("content-disposition")!, /attachment/);
+  assert.match(original.headers.get("cache-control")!, /no-store/);
+  assert.deepEqual(Buffer.from(await original.arrayBuffer()), buffer);
 });
 
 test("photo associations have independent ordering and project deletion retains source photos", () => {
@@ -310,7 +314,7 @@ test("invalid images and oversized payloads fail cleanly and allow subsequent up
   );
   await assert.rejects(
     importPhoto(Buffer.alloc(maxUploadBytes + 1), "large.jpg"),
-    /32 MB/,
+    /256 MiB/,
   );
   assert.equal(listPhotos(false).length, count);
   assert.ok(
@@ -332,6 +336,233 @@ test("invalid images and oversized payloads fail cleanly and allow subsequent up
   );
   assert.equal(retry.status, 201);
   assert.equal((await retry.json()).duplicate, true);
+});
+
+test("media validators reduce transfer and cannot bypass visibility or original authorization", async () => {
+  const photo = getPhoto(photoId)!;
+  updatePhoto(photoId, photoInput.parse({ ...photo, visibility: "public" }));
+  const context = { params: Promise.resolve({ id: photoId, variant: "grid" }) };
+  const url = `${origin}/media/${photoId}/grid`;
+  const response = await mediaRoute.GET(new Request(url), context);
+  const etag = response.headers.get("etag")!;
+  assert.equal(response.status, 200);
+  assert.ok(etag);
+  const body = await response.arrayBuffer();
+  assert.equal(Number(response.headers.get("content-length")), body.byteLength);
+  const cached = await mediaRoute.GET(new Request(url, {
+    headers: { "if-none-match": `"older", W/${etag}` },
+  }), context);
+  assert.equal(cached.status, 304);
+  assert.equal((await cached.arrayBuffer()).byteLength, 0);
+  const head = await mediaRoute.HEAD(new Request(url, { method: "HEAD" }), context);
+  assert.equal(head.status, 200);
+  assert.equal(Number(head.headers.get("content-length")), body.byteLength);
+  assert.equal((await head.arrayBuffer()).byteLength, 0);
+
+  updatePhoto(photoId, photoInput.parse({ ...getPhoto(photoId)!, visibility: "private" }));
+  for (const method of ["GET", "HEAD"]) {
+    const revoked = await mediaRoute.GET(new Request(url, {
+      method, headers: { "if-none-match": etag },
+    }), context);
+    assert.equal(revoked.status, 404);
+    assert.match(revoked.headers.get("cache-control")!, /no-store/);
+  }
+  const original = await mediaRoute.GET(new Request(`${origin}/media/${photoId}/original`, {
+    headers: { "if-none-match": "*" },
+  }), { params: Promise.resolve({ id: photoId, variant: "original" }) });
+  assert.equal(original.status, 404);
+  const privateImage = await mediaRoute.GET(new Request(url, { headers: { cookie, host: "localhost:3456", "if-none-match": "*" } }), context);
+  assert.equal(privateImage.status, 200);
+  assert.match(privateImage.headers.get("cache-control")!, /no-store/);
+  await privateImage.arrayBuffer();
+});
+
+test("admin JSON requests enforce byte limits with and without Content-Length", async () => {
+  const url = `${origin}/api/admin/photos/${photoId}`;
+  const context = { params: Promise.resolve({ id: photoId }) };
+  const oversized = JSON.stringify({ description: "x".repeat(4 * 1024 * 1024) });
+  for (const length of [undefined, "1", String(oversized.length)]) {
+    const headers: Record<string, string> = { ...authHeaders };
+    if (length) headers["content-length"] = length;
+    const response = await photoRoute.PUT(new Request(url, {
+      method: "PUT", headers, body: oversized,
+    }), context);
+    assert.equal(response.status, 413);
+  }
+  const malformed = await photoRoute.PUT(new Request(url, {
+    method: "PUT", headers: authHeaders, body: "{",
+  }), context);
+  assert.equal(malformed.status, 400);
+});
+
+test("upload processing is bounded and releases capacity after malformed uploads", async () => {
+  function heldUpload() {
+    let close!: () => void;
+    let started!: () => void;
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { close = () => controller.close(); },
+      pull() { started(); },
+    }, { highWaterMark: 0 });
+    const request = new Request(`${origin}/api/admin/photos`, {
+      method: "POST",
+      headers: { ...authHeaders, "Content-Type": "multipart/form-data; boundary=held" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    return { response: uploadRoute.POST(request), reading, close };
+  }
+  const first = heldUpload();
+  const second = heldUpload();
+  await Promise.all([first.reading, second.reading]);
+  try {
+    const busy = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+      method: "POST", headers: authHeaders, body: "{}",
+    }));
+    assert.equal(busy.status, 429);
+  } finally {
+    first.close();
+    second.close();
+    await Promise.all([first.response, second.response]);
+  }
+  const data = new FormData();
+  data.set("file", new File([new Uint8Array(buffer)], "retry.jpg", { type: "image/jpeg" }));
+  const retry = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+    method: "POST", headers: { cookie, origin, host: "localhost:3456" }, body: data,
+  }));
+  assert.equal(retry.status, 201);
+});
+
+test("lossless previews match resized pixels and rebuilding preserves source and manual metadata", async () => {
+  const pixels = Buffer.alloc(1600 * 1000 * 3);
+  for (let index = 0; index < pixels.length; index++) pixels[index] = (index * 17 + Math.floor(index / 59)) % 256;
+  const source = await sharp(pixels, { raw: { width: 1600, height: 1000, channels: 3 } })
+    .jpeg({ quality: 98, chromaSubsampling: "4:4:4" }).toBuffer();
+  const { photo } = await importPhoto(source, "高质量样片.jpg");
+  assert.equal(photo.title, "高质量样片");
+  assert.ok(photo.previewSrc);
+  for (const [variant, width] of [["thumbnail", 420], ["preview", 840], ["grid", 1440], ["lightbox", 2560]] as const) {
+    const expected = await sharp(source).rotate().resize({ width, height: width, fit: "inside", withoutEnlargement: true }).raw().toBuffer();
+    const actual = await sharp(await readMedia(getMediaRecord(photo.id, variant)!)).raw().toBuffer();
+    assert.deepEqual(actual, expected);
+  }
+  updatePhoto(photo.id, photoInput.parse({ ...photo, title: "人工标题", tags: ["保留"] }));
+  const record = getMediaRecord(photo.id, "grid")!;
+  const legacy = await sharp(source).resize(1440).webp({ quality: 20 }).toBuffer();
+  await writeFile(path.join(mediaDirectory, record.storage_key, record.filename), legacy);
+  getDatabase().prepare("UPDATE media_variant SET encoding_version=1 WHERE photo_id=? AND variant='grid'").run(photo.id);
+  assert.equal(await rebuildPhotoPreviews(photo.id), true);
+  assert.equal(await rebuildPhotoPreviews(photo.id), false);
+  assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), source);
+  assert.equal(getPhoto(photo.id)!.title, "人工标题");
+  assert.deepEqual(getPhoto(photo.id)!.tags, ["保留"]);
+  getDatabase().prepare("DELETE FROM photo WHERE id=?").run(photo.id);
+  await rm(path.join(mediaDirectory, record.storage_key), { recursive: true, force: true });
+});
+
+test("streamed uploads above 80 MiB preserve original bytes and support public range downloads", async () => {
+  const boundary = "large-photo-fixture";
+  const padding = Buffer.alloc(1024 * 1024);
+  const hash = createHash("sha256");
+  async function* chunks() {
+    yield Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="大幅原片.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`);
+    hash.update(buffer);
+    yield buffer;
+    for (let index = 0; index < 81; index++) {
+      hash.update(padding);
+      yield padding;
+    }
+    yield Buffer.from(`\r\n--${boundary}--\r\n`);
+  }
+  const uploaded = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+    method: "POST",
+    headers: { cookie, origin, host: "localhost:3456", "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body: Readable.toWeb(Readable.from(chunks())),
+    duplex: "half",
+  } as RequestInit));
+  assert.equal(uploaded.status, 201);
+  const { photo } = await uploaded.json();
+  assert.equal(photo.title, "大幅原片");
+  const record = getMediaRecord(photo.id, "original")!;
+  const stored = createHash("sha256");
+  for await (const chunk of createReadStream(path.join(mediaDirectory, record.storage_key, record.filename))) stored.update(chunk);
+  assert.equal(stored.digest("hex"), hash.digest("hex"));
+  updatePhoto(photo.id, photoInput.parse({ ...photo, visibility: "public" }));
+  const url = `${origin}/media/${photo.id}/original`;
+  const context = { params: Promise.resolve({ id: photo.id, variant: "original" }) };
+  const original = await mediaRoute.GET(new Request(url), context);
+  const downloaded = createHash("sha256");
+  for await (const chunk of Readable.fromWeb(original.body! as Parameters<typeof Readable.fromWeb>[0])) downloaded.update(chunk);
+  assert.equal(downloaded.digest("hex"), (getDatabase().prepare("SELECT digest FROM photo WHERE id=?").get(photo.id) as { digest: string }).digest);
+  const partial = await mediaRoute.GET(new Request(url, { headers: { range: "bytes=0-99" } }), context);
+  assert.equal(partial.status, 206);
+  assert.equal(partial.headers.get("content-range"), `bytes 0-99/${buffer.length + 81 * padding.length}`);
+  assert.deepEqual(Buffer.from(await partial.arrayBuffer()), buffer.subarray(0, 100));
+  const invalid = await mediaRoute.GET(new Request(url, { headers: { range: "bytes=999999999-" } }), context);
+  assert.equal(invalid.status, 416);
+  updatePhoto(photo.id, photoInput.parse({ ...getPhoto(photo.id)!, visibility: "private" }));
+  assert.equal((await mediaRoute.GET(new Request(url, { headers: { range: "bytes=0-99" } }), context)).status, 404);
+  assert.ok(!(await readdir(mediaDirectory)).some((name) => name.startsWith(".upload-")));
+  getDatabase().prepare("DELETE FROM photo WHERE id=?").run(photo.id);
+  await rm(path.join(mediaDirectory, record.storage_key), { recursive: true, force: true });
+});
+
+test("streaming multipart rejects excessive files, oversized and interrupted uploads cleanly", async () => {
+  const multiple = new FormData();
+  multiple.append("file", new File([new Uint8Array(buffer)], "a.jpg"));
+  multiple.append("file", new File([new Uint8Array(buffer)], "b.jpg"));
+  const response = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+    method: "POST", headers: { cookie, origin, host: "localhost:3456" }, body: multiple,
+  }));
+  assert.equal(response.status, 400);
+  const wrongField = new FormData();
+  wrongField.set("unexpected", new File([new Uint8Array(buffer)], "photo.jpg"));
+  const invalidField = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+    method: "POST", headers: { cookie, origin, host: "localhost:3456" }, body: wrongField,
+  }));
+  assert.equal(invalidField.status, 400);
+  const boundary = "too-large-fixture";
+  let cancelled = false;
+  async function* chunks() {
+    try {
+      yield Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="large.jpg"\r\n\r\n`);
+      const chunk = Buffer.alloc(1024 * 1024);
+      for (let index = 0; index < 258; index++) yield chunk;
+      yield Buffer.from(`\r\n--${boundary}--\r\n`);
+    } finally {
+      cancelled = true;
+    }
+  }
+  const oversized = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+    method: "POST",
+    headers: { cookie, origin, host: "localhost:3456", "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body: Readable.toWeb(Readable.from(chunks())), duplex: "half",
+  } as RequestInit));
+  assert.equal(oversized.status, 413);
+  assert.equal(cancelled, true);
+  const interrupted = await uploadRoute.POST(new Request(`${origin}/api/admin/photos`, {
+    method: "POST",
+    headers: { cookie, origin, host: "localhost:3456", "Content-Type": `multipart/form-data; boundary=${boundary}` },
+    body: `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="partial.jpg"\r\n\r\npartial`,
+  }));
+  assert.equal(interrupted.status, 400);
+  assert.ok(!(await readdir(mediaDirectory)).some((name) => name.startsWith(".upload-")));
+});
+
+test("large-sensor JPEGs retain their original and display colour profiles", async () => {
+  const source = await sharp({ create: { width: 12000, height: 10000, channels: 3, background: "#d83a72" } })
+    .withIccProfile("p3").jpeg({ quality: 95 }).toBuffer();
+  const { photo } = await importPhoto(source, "120-megapixel.jpg");
+  assert.equal(photo.width * photo.height, 120_000_000);
+  const original = getMediaRecord(photo.id, "original")!;
+  assert.deepEqual(await readMedia(original), source);
+  const sourceProfile = (await sharp(source).metadata()).icc;
+  const preview = await sharp(await readMedia(getMediaRecord(photo.id, "lightbox")!)).metadata();
+  assert.deepEqual(preview.icc, sourceProfile);
+  assert.equal(preview.exif, undefined);
+  assert.equal(Math.max(preview.width!, preview.height!), 2560);
+  getDatabase().prepare("DELETE FROM photo WHERE id=?").run(photo.id);
+  await rm(path.join(mediaDirectory, original.storage_key), { recursive: true, force: true });
 });
 
 test("sign-out revokes the server session", async () => {

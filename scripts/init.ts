@@ -1,7 +1,6 @@
 import "./environment.mjs";
-import { readFile } from "node:fs/promises";
 import { samplePhotos, sampleProjects } from "../src/lib/seed-content";
-import { importPhoto } from "../src/lib/server/media";
+import { importPhotoFile, rebuildPhotoPreviews } from "../src/lib/server/media";
 import { getPhoto, listProjects, saveProject } from "../src/lib/server/store";
 import { getAuth } from "../src/lib/server/auth";
 import { projectInput } from "../src/lib/server/validation";
@@ -13,11 +12,12 @@ async function main() {
   for (const photo of samplePhotos) {
     const existing = getPhoto(photo.id);
     if (existing) {
+      await rebuildPhotoPreviews(existing.id);
       ids.set(photo.id, existing.id);
       continue;
     }
-    const result = await importPhoto(
-      await readFile(`samples/photos/${photo.id}.jpg`),
+    const result = await importPhotoFile(
+      `samples/photos/${photo.id}.jpg`,
       `${photo.id}.jpg`,
       {
         ...photo,

@@ -3,7 +3,11 @@
 import { PhotoImage } from "@/components/photo-image";
 import { useState } from "react";
 import type { Photo, PhotoLayout } from "@/lib/content";
-import { PhotoViewer } from "./photo-viewer";
+import dynamic from "next/dynamic";
+
+const PhotoViewer = dynamic(() =>
+  import("./photo-viewer").then((module) => module.PhotoViewer),
+);
 
 function layoutImageSizes(layout: PhotoLayout, index: number) {
   const widths = {
@@ -24,11 +28,18 @@ function layoutImageSizes(layout: PhotoLayout, index: number) {
 export function PhotoGallery({
   photos,
   layouts,
+  batchSize = Math.max(1, photos.length),
 }: {
   photos: Photo[];
   layouts?: PhotoLayout[];
+  batchSize?: number;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
+  const photoById = new Map(photos.map((photo, index) => [photo.id, { photo, index }]));
+  const batches: Photo[][] = [];
+  for (let index = 0; index < photos.length; index += batchSize) {
+    batches.push(photos.slice(index, index + batchSize));
+  }
   function photoButton(photo: Photo, sizes: string) {
     return (
       <button
@@ -36,13 +47,14 @@ export function PhotoGallery({
         className="photo-button"
         key={photo.id}
         onClick={() =>
-          setSelected(photos.findIndex((item) => item.id === photo.id))
+          setSelected(photoById.get(photo.id)!.index)
         }
         aria-label={`查看大图，${photo.title}`}
       >
         <PhotoImage
           photo={photo}
           loading={photo.id === photos[0]?.id ? "eager" : "lazy"}
+          fetchPriority={photo.id === photos[0]?.id ? "high" : "auto"}
           sizes={sizes}
         />
         <span className="photo-hover" aria-hidden="true">
@@ -62,7 +74,7 @@ export function PhotoGallery({
               key={layout.id || index}
             >
               {layout.photoIds
-                .map((id) => photos.find((photo) => photo.id === id))
+                .map((id) => photoById.get(id)?.photo)
                 .filter((photo): photo is Photo => Boolean(photo))
                 .map((photo, index) =>
                   photoButton(photo, layoutImageSizes(layout, index)),
@@ -71,14 +83,14 @@ export function PhotoGallery({
           ))}
         </div>
       ) : (
-        <div className="archive-grid">
-          {photos.map((photo) =>
-            photoButton(
+        batches.map((batch) => (
+          <div className="archive-grid" key={batch[0].id}>
+            {batch.map((photo) => photoButton(
               photo,
-              "(max-width: 767px) 45vw, (max-width: 1199px) 30vw, 25vw",
-            ),
-          )}
-        </div>
+              "(max-width: 767px) calc((100vw - 62px) / 2), (max-width: 1199px) 30vw, (min-width: 1778px) 350px, 22vw",
+            ))}
+          </div>
+        ))
       )}
       {selected !== null && (
         <PhotoViewer

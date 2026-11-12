@@ -90,6 +90,20 @@ export function getDatabase() {
       new Date().toISOString(),
     );
   }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 3").get()) return;
+    db.exec(`
+      CREATE INDEX photo_public_page ON photo(visibility, uploaded_at DESC, id);
+      CREATE INDEX photo_category_page ON photo(visibility, category, uploaded_at DESC, id);
+      CREATE INDEX project_public_order ON project(status, sort_order, id);
+    `);
+    db.prepare("INSERT INTO schema_migration VALUES (3, ?)").run(new Date().toISOString());
+  }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 4").get()) return;
+    db.exec("ALTER TABLE media_variant ADD COLUMN encoding_version INTEGER NOT NULL DEFAULT 1");
+    db.prepare("INSERT INTO schema_migration VALUES (4, ?)").run(new Date().toISOString());
+  }).immediate();
   database = db;
   return db;
 }

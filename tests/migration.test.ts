@@ -15,9 +15,10 @@ test("stage-two database migration preserves legacy associations, captions and f
     PRAGMA foreign_keys=ON;
     CREATE TABLE schema_migration(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
     INSERT INTO schema_migration VALUES (1,'2026-11-11');
-    CREATE TABLE photo(id TEXT PRIMARY KEY);
-    CREATE TABLE project(id TEXT PRIMARY KEY);
-    INSERT INTO photo VALUES ('a'),('b'); INSERT INTO project VALUES ('series');
+    CREATE TABLE media_variant(photo_id TEXT, variant TEXT, filename TEXT, mime_type TEXT);
+    CREATE TABLE photo(id TEXT PRIMARY KEY, visibility TEXT, category TEXT, uploaded_at TEXT);
+    CREATE TABLE project(id TEXT PRIMARY KEY, status TEXT, sort_order INTEGER);
+    INSERT INTO photo(id) VALUES ('a'),('b'); INSERT INTO project(id) VALUES ('series');
     CREATE TABLE project_photo (
       project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
       photo_id TEXT NOT NULL REFERENCES photo(id), sort_order INTEGER NOT NULL,

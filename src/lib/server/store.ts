@@ -1,8 +1,10 @@
 import "server-only";
-import { buildPhotoLayouts } from "../content";
+import { archivePageSize, buildPhotoLayouts } from "../content";
 import { randomUUID } from "node:crypto";
 import type {
   Category,
+  PhotoPage,
+  ProjectCoverData,
   Photo,
   PhotoLayout,
   Project,
@@ -35,6 +37,9 @@ type PhotoRow = {
   iso: string;
   is_sample: number;
   version: number;
+  uploaded_at: string;
+  tags_json: string;
+  has_preview: number;
 };
 type ProjectRow = {
   id: string;
@@ -50,18 +55,26 @@ type ProjectRow = {
   version: number;
 };
 
+const photoColumns = `p.*, EXISTS(SELECT 1 FROM media_variant WHERE photo_id=p.id AND variant='preview') AS has_preview, (
+  SELECT json_group_array(name) FROM (
+    SELECT t.name FROM tag t JOIN photo_tag pt ON pt.tag_id=t.id
+    WHERE pt.photo_id=p.id ORDER BY t.name
+  )
+) AS tags_json`;
+
+const publishedProjectWhere = `p.status='published'
+  AND EXISTS (SELECT 1 FROM project_photo WHERE project_id=p.id AND photo_id=p.cover_photo_id)
+  AND EXISTS (SELECT 1 FROM photo WHERE id=p.cover_photo_id AND visibility='public')
+  AND NOT EXISTS (SELECT 1 FROM project_photo pp JOIN photo ph ON pp.photo_id=ph.id
+    WHERE pp.project_id=p.id AND ph.visibility!='public')`;
+
 export function getPhoto(id: string): Photo | undefined {
   const row = getDatabase()
-    .prepare("SELECT * FROM photo WHERE id = ?")
+    .prepare(`SELECT ${photoColumns} FROM photo p WHERE p.id = ?`)
     .get(id) as PhotoRow | undefined;
   return row && serializePhoto(row);
 }
 function serializePhoto(row: PhotoRow): Photo {
-  const tags = getDatabase()
-    .prepare(
-      "SELECT t.name FROM tag t JOIN photo_tag pt ON pt.tag_id = t.id WHERE pt.photo_id = ? ORDER BY t.name",
-    )
-    .all(row.id) as { name: string }[];
   return {
     id: row.id,
     title: row.title,
@@ -72,6 +85,7 @@ function serializePhoto(row: PhotoRow): Photo {
     src: `/media/${row.id}/grid`,
     lightboxSrc: `/media/${row.id}/lightbox`,
     thumbnailSrc: `/media/${row.id}/thumbnail`,
+    ...(row.has_preview ? { previewSrc: `/media/${row.id}/preview` } : {}),
     category: row.category,
     year: row.year,
     location: row.location,
@@ -87,17 +101,54 @@ function serializePhoto(row: PhotoRow): Photo {
     iso: row.iso,
     isSample: Boolean(row.is_sample),
     version: row.version,
-    tags: tags.map((tag) => tag.name),
+    tags: JSON.parse(row.tags_json),
   };
 }
 export function listPhotos(publicOnly = true): Photo[] {
   const rows = getDatabase()
     .prepare(
-      `SELECT * FROM photo ${publicOnly ? "WHERE visibility = 'public'" : ""} ORDER BY uploaded_at DESC, id`,
+      `SELECT ${photoColumns} FROM photo p ${publicOnly ? "WHERE p.visibility = 'public'" : ""} ORDER BY p.uploaded_at DESC, p.id`,
     )
     .all() as PhotoRow[];
   return rows.map(serializePhoto);
 }
+export function listPhotoPage(category: Category | "all", cursor?: string): PhotoPage {
+  let after: string[] = [];
+  if (cursor) {
+    try {
+      if (cursor.length > 512) throw new Error();
+      const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+      if (!Array.isArray(value) || value.length !== 2 ||
+          !value.every((part) => typeof part === "string" && part.length <= 100))
+        throw new Error();
+      after = value;
+    } catch {
+      throw new AppError("分页位置无效，请刷新后重试");
+    }
+  }
+  const db = getDatabase();
+  const categoryWhere = category === "all" ? "" : " AND p.category = ?";
+  const values = category === "all" ? [] : [category];
+  const { total } = db.prepare(
+    `SELECT COUNT(*) AS total FROM photo p WHERE p.visibility='public'${categoryWhere}`,
+  ).get(...values) as { total: number };
+  const cursorValues = after.length ? [after[0], after[0], after[0], after[1]] : [];
+  const rows = db.prepare(
+    `SELECT ${photoColumns} FROM photo p WHERE p.visibility='public'${categoryWhere}
+    ${after.length ? "AND p.uploaded_at <= ? AND (p.uploaded_at < ? OR (p.uploaded_at = ? AND p.id > ?))" : ""}
+    ORDER BY p.uploaded_at DESC, p.id LIMIT ?`,
+  ).all(...values, ...cursorValues, archivePageSize + 1) as PhotoRow[];
+  const visible = rows.slice(0, archivePageSize);
+  const last = visible.at(-1);
+  return {
+    photos: visible.map(serializePhoto),
+    total,
+    nextCursor: rows.length > archivePageSize && last
+      ? Buffer.from(JSON.stringify([last.uploaded_at, last.id])).toString("base64url")
+      : null,
+  };
+}
+
 export function updatePhoto(id: string, input: z.infer<typeof photoInput>) {
   const db = getDatabase();
   return db
@@ -132,20 +183,16 @@ export function updatePhoto(id: string, input: z.infer<typeof photoInput>) {
     })
     .immediate();
 }
-function serializeProject(row: ProjectRow): Project {
-  const members = getDatabase()
-    .prepare(
-      "SELECT photo_id, layout_type, caption, layout_group FROM project_photo WHERE project_id = ? ORDER BY sort_order",
-    )
-    .all(row.id) as {
-    photo_id: string;
-    layout_type: PhotoLayout["type"];
-    caption: string;
-    layout_group: string | null;
-  }[];
-  const photos = members
-    .map((item) => getPhoto(item.photo_id)!)
-    .filter(Boolean);
+type ProjectMemberRow = PhotoRow & {
+  project_id: string;
+  photo_id: string;
+  layout_type: PhotoLayout["type"];
+  caption: string;
+  layout_group: string | null;
+};
+
+function serializeProject(row: ProjectRow, members: ProjectMemberRow[]): Project {
+  const photos = members.map(serializePhoto);
   const rawItems = members.map((item): ProjectPhotoInput => ({
     photoId: item.photo_id,
     layoutType: item.layout_type,
@@ -178,26 +225,69 @@ function serializeProject(row: ProjectRow): Project {
     })),
   };
 }
-export function listProjects(publicOnly = true): Project[] {
-  const rows = getDatabase()
-    .prepare(
-      `SELECT p.* FROM project p ${
-        publicOnly
-          ? `WHERE status='published'
-    AND EXISTS (SELECT 1 FROM project_photo WHERE project_id=p.id AND photo_id=p.cover_photo_id)
-    AND EXISTS (SELECT 1 FROM photo WHERE id=p.cover_photo_id AND visibility='public')
-    AND NOT EXISTS (SELECT 1 FROM project_photo pp JOIN photo ph ON pp.photo_id=ph.id WHERE pp.project_id=p.id AND ph.visibility!='public')`
-          : ""
-      } ORDER BY sort_order, id`,
-    )
-    .all() as ProjectRow[];
-  return rows.map(serializeProject);
+function loadProjects(rows: ProjectRow[]): Project[] {
+  if (!rows.length) return [];
+  const members = getDatabase().prepare(
+    `SELECT ${photoColumns}, pp.project_id, pp.photo_id, pp.layout_type, pp.caption, pp.layout_group
+    FROM project_photo pp JOIN photo p ON p.id=pp.photo_id
+    WHERE pp.project_id IN (SELECT value FROM json_each(?)) ORDER BY pp.sort_order`,
+  ).all(JSON.stringify(rows.map((row) => row.id))) as ProjectMemberRow[];
+  const byProject = new Map<string, ProjectMemberRow[]>();
+  for (const member of members) {
+    const group = byProject.get(member.project_id) || [];
+    group.push(member);
+    byProject.set(member.project_id, group);
+  }
+  return rows.map((row) => serializeProject(row, byProject.get(row.id) || []));
 }
+
+export function listProjects(publicOnly = true): Project[] {
+  const rows = getDatabase().prepare(
+    `SELECT p.* FROM project p ${publicOnly ? `WHERE ${publishedProjectWhere}` : ""}
+    ORDER BY p.sort_order, p.id`,
+  ).all() as ProjectRow[];
+  return loadProjects(rows);
+}
+
+export function listProjectCovers(): ProjectCoverData[] {
+  const rows = getDatabase().prepare(
+    `SELECT ${photoColumns}, pr.slug, pr.title AS project_title, pr.subtitle
+    FROM project pr JOIN photo p ON p.id=pr.cover_photo_id
+    WHERE pr.id IN (SELECT p.id FROM project p WHERE ${publishedProjectWhere})
+    ORDER BY pr.sort_order, pr.id`,
+  ).all() as (PhotoRow & { slug: string; project_title: string; subtitle: string })[];
+  return rows.map((row) => ({
+    slug: row.slug,
+    title: row.project_title,
+    subtitle: row.subtitle,
+    cover: serializePhoto(row),
+  }));
+}
+
+export function getPublishedProject(slug: string): Project | undefined {
+  const row = getDatabase().prepare(
+    `SELECT p.* FROM project p WHERE p.slug=? AND ${publishedProjectWhere}`,
+  ).get(slug) as ProjectRow | undefined;
+  return row && loadProjects([row])[0];
+}
+
+export function getNextPublishedProject(project: Project) {
+  const db = getDatabase();
+  const next = db.prepare(
+    `SELECT p.slug, p.title FROM project p WHERE ${publishedProjectWhere}
+    AND (p.sort_order > ? OR (p.sort_order = ? AND p.id > ?))
+    ORDER BY p.sort_order, p.id LIMIT 1`,
+  ).get(project.sortOrder, project.sortOrder, project.id);
+  return (next || db.prepare(
+    `SELECT p.slug, p.title FROM project p WHERE ${publishedProjectWhere} AND p.id != ?
+    ORDER BY p.sort_order, p.id LIMIT 1`,
+  ).get(project.id)) as { slug: string; title: string } | undefined;
+}
+
 export function getProject(id: string) {
-  const row = getDatabase()
-    .prepare("SELECT * FROM project WHERE id = ?")
+  const row = getDatabase().prepare("SELECT * FROM project WHERE id = ?")
     .get(id) as ProjectRow | undefined;
-  return row && serializeProject(row);
+  return row && loadProjects([row])[0];
 }
 export function saveProject(
   id: string | null,

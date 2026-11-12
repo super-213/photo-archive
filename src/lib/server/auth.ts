@@ -4,7 +4,21 @@ import { getMigrations } from "better-auth/db/migration";
 import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { getDatabase, dataDirectory } from "./database";
+
+export const developmentAdminEmail = "admin@localhost.test";
+let developmentDatabase: Database.Database | undefined;
+
+function getAuthDatabase() {
+  const database = getDatabase();
+  if (process.env.NODE_ENV !== "development") return database;
+  developmentDatabase ??= new Database(
+    path.join(dataDirectory, "auth-development.sqlite"),
+  );
+  developmentDatabase.pragma("busy_timeout = 5000");
+  return developmentDatabase;
+}
 
 function getSecret() {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
@@ -24,7 +38,7 @@ function getSecret() {
 export function createAuth(allowSetup = false) {
   return betterAuth({
     appName: "Photo Archive",
-    database: getDatabase(),
+    database: getAuthDatabase(),
     secret: getSecret(),
     baseURL:
       process.env.BETTER_AUTH_URL ||
@@ -34,7 +48,7 @@ export function createAuth(allowSetup = false) {
     emailAndPassword: {
       enabled: true,
       disableSignUp: !allowSetup,
-      minPasswordLength: 12,
+      minPasswordLength: process.env.NODE_ENV === "development" ? 5 : 12,
     },
     session: {
       expiresIn: 60 * 60 * 24 * 7,
@@ -58,6 +72,27 @@ export async function getAuth() {
   instance ??= createAuth();
   initialized ??= getMigrations(instance.options)
     .then(({ runMigrations }) => runMigrations())
+    .then(async () => {
+      if (process.env.NODE_ENV !== "development") return;
+      const database = getAuthDatabase();
+      const exists = () =>
+        database
+          .prepare('SELECT 1 FROM "user" WHERE email = ?')
+          .get(developmentAdminEmail);
+      if (exists()) return;
+      try {
+        await createAuth(true).api.signUpEmail({
+          body: {
+            email: developmentAdminEmail,
+            password: "admin",
+            name: "本地管理员",
+          },
+        });
+      } catch (error) {
+        // Separate Next.js server bundles may initialize the same account concurrently.
+        if (!exists()) throw error;
+      }
+    })
     .catch((error) => {
       initialized = undefined;
       throw error;
@@ -70,6 +105,11 @@ export async function getAdministrator(headers: Headers) {
   if (!headers.get("cookie")) return null;
   const auth = await getAuth();
   const session = await auth.api.getSession({ headers });
+  if (
+    process.env.NODE_ENV === "development" &&
+    session?.user.email === developmentAdminEmail
+  )
+    return session.user;
   if (
     !session ||
     !getDatabase()

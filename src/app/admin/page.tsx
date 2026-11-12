@@ -8,9 +8,11 @@ export default async function AdminPage() {
   if (await getAdministrator(await headers())) redirect("/admin/photos");
   return (
     <AdminLogin
-      configured={Boolean(
-        getDatabase().prepare("SELECT 1 FROM administrator LIMIT 1").get(),
-      )}
+      development={process.env.NODE_ENV === "development"}
+      configured={
+        process.env.NODE_ENV === "development" ||
+        Boolean(getDatabase().prepare("SELECT 1 FROM administrator LIMIT 1").get())
+      }
     />
   );
 }

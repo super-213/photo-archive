@@ -3,7 +3,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminRequest } from "./api";
 
-export function AdminLogin({ configured }: { configured: boolean }) {
+export function AdminLogin({
+  configured,
+  development,
+}: {
+  configured: boolean;
+  development: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -17,6 +23,9 @@ export function AdminLogin({ configured }: { configured: boolean }) {
         <h1>管理员登录</h1>
         <p className="admin-muted">管理照片，编排与发布摄影系列。</p>
       </div>
+      {development && (
+        <p className="admin-notice">本地开发账号和密码均为 admin，点击登录即可。</p>
+      )}
       {!configured && (
         <p className="admin-notice">
           首次使用请在本机终端运行 <code>npm run admin:create</code>{" "}
@@ -37,17 +46,18 @@ export function AdminLogin({ configured }: { configured: boolean }) {
             router.replace("/admin/photos");
             router.refresh();
           } catch {
-            setError("登录失败，请检查邮箱和密码。多次尝试后请稍后重试。");
+            setError("登录失败，请检查账号和密码。多次尝试后请稍后重试。");
           } finally {
             setBusy(false);
           }
         }}
       >
         <label>
-          邮箱
+          {development ? "账号" : "邮箱"}
           <input
-            type="email"
+            type={development ? "text" : "email"}
             name="email"
+            defaultValue={development ? "admin" : ""}
             autoComplete="username"
             required
             disabled={busy}
@@ -58,6 +68,7 @@ export function AdminLogin({ configured }: { configured: boolean }) {
           <input
             type="password"
             name="password"
+            defaultValue={development ? "admin" : ""}
             autoComplete="current-password"
             required
             disabled={busy}

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { listPhotoPage } from "@/lib/server/store";
 import { readArchiveFilters } from "@/lib/archive-filters";
 import { Archive } from "@/components/archive";
@@ -23,15 +22,7 @@ export default async function ArchivePage({
       <header className="page-heading">
         <h1>所藏</h1>
       </header>
-      <Suspense
-        fallback={
-          <p className="loading-state" role="status">
-            正在加载照片…
-          </p>
-        }
-      >
-        <Archive category={category} initialPage={listPhotoPage(category)} />
-      </Suspense>
+      <Archive category={category} initialPage={listPhotoPage(category)} />
     </div>
   );
 }

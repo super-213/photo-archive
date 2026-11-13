@@ -183,6 +183,12 @@ em[lang="zh-CN"] {
 .site-header nav a:focus-visible::after {
   height: 2px;
 }
+.navigation-label {
+  transition: opacity 120ms ease;
+}
+.navigation-label[aria-busy="true"] {
+  opacity: 0.5;
+}
 
 .editorial-grid {
   display: grid;

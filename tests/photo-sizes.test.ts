@@ -25,7 +25,7 @@ after(async () => {
 
 test("new imports store exactly three display sizes; ordinary pages never select the lightbox image", () => {
   assert.deepEqual(getDatabase().prepare("SELECT variant FROM media_variant WHERE photo_id=? ORDER BY variant").all(photo.id),
-    ["download", "lightbox", "original", "preview", "thumbnail"].map((variant) => ({ variant })));
+    ["lightbox", "original", "preview", "thumbnail"].map((variant) => ({ variant })));
   assert.equal(photo.src, photo.previewSrc);
   const normal = photoSources(photo);
   assert.equal(normal.srcSet, `${photo.thumbnailSrc} 280w, ${photo.previewSrc} 560w`);
@@ -40,7 +40,6 @@ test("retiring a legacy grid removes only the derived file and preserves all ori
   updatePhoto(photo.id, photoInput.parse({ ...getPhoto(photo.id), title: "手动标题", tags: ["保留"] }));
   const before = getPhoto(photo.id)!;
   const original = getMediaRecord(photo.id, "original")!;
-  const download = await readMedia(getMediaRecord(photo.id, "download")!);
   const preview = await readMedia(getMediaRecord(photo.id, "preview")!);
   const grid = path.join(mediaDirectory, original.storage_key, "grid.webp");
   await writeFile(grid, await sharp(source).resize(1440).webp().toBuffer());
@@ -50,7 +49,7 @@ test("retiring a legacy grid removes only the derived file and preserves all ori
   assert.equal(getMediaRecord(photo.id, "grid"), undefined);
   await assert.rejects(readFile(grid), { code: "ENOENT" });
   assert.deepEqual(await readMedia(original), source);
-  assert.deepEqual(await readMedia(getMediaRecord(photo.id, "download")!), download);
+  assert.equal(getMediaRecord(photo.id, "download"), undefined);
   assert.deepEqual(await readMedia(getMediaRecord(photo.id, "preview")!), preview);
   assert.deepEqual(getPhoto(photo.id), before);
   for (const variant of ["grid", "grid.webp"]) {

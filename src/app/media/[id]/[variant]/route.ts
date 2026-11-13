@@ -1,7 +1,7 @@
 import { previewVariants, publicPreviewCacheSeconds } from "@/lib/media-settings";
 import { Readable } from "node:stream";
 import { getAdministrator } from "@/lib/server/auth";
-import { ensureCopyrightDownload, getMediaRecord, openMedia } from "@/lib/server/media";
+import { openCopyrightDownload, getMediaRecord, openMedia } from "@/lib/server/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function GET(request: Request, context: MediaContext) {
   if ((webp && variant === "original") ||
       (variant !== "original" && !previewVariants.some((item) => item.name === variant)))
     return new Response(null, { status: 404, headers: privateHeaders });
-  let record = getMediaRecord(id, variant);
+  const record = getMediaRecord(id, variant);
   if (!record) return new Response(null, { status: 404, headers: privateHeaders });
   const restricted = record.visibility !== "public";
   const administrator = restricted && await getAdministrator(request.headers);
@@ -31,10 +31,15 @@ export async function GET(request: Request, context: MediaContext) {
     return new Response(null, { status: 404, headers: privateHeaders });
 
   let file: Awaited<ReturnType<typeof openMedia>> | undefined;
+  let dispose: (() => Promise<void>) | undefined;
   try {
-    if (variant === "original") record = await ensureCopyrightDownload(id);
-    if (!record) return new Response(null, { status: 404, headers: privateHeaders });
-    file = await openMedia(record);
+    if (variant === "original") {
+      ({ file, dispose } = await openCopyrightDownload(id));
+    } else {
+      file = await openMedia(record);
+      const handle = file;
+      dispose = () => handle.close();
+    }
     const stat = await file.stat();
     // Recheck after asynchronous file access, before honoring any cache validator.
     const current = getMediaRecord(id, variant);
@@ -46,8 +51,8 @@ export async function GET(request: Request, context: MediaContext) {
     const etag = `"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
     const headers = {
       ...(cdnCacheable ? {
-        // Keep browser storage disabled; the Cloudflare-only policy independently permits edge caching.
-        "Cache-Control": "private, no-store, max-age=0",
+        // Reuse public display images in the browser and at Cloudflare for four hours.
+        "Cache-Control": `private, max-age=${publicPreviewCacheSeconds}`,
         "Cloudflare-CDN-Cache-Control": `public, max-age=${publicPreviewCacheSeconds}, must-revalidate`,
       } : privateHeaders),
       ...(cacheable ? { ...(!cdnCacheable ? { "Cache-Control": "private, no-cache" } : {}), ETag: etag } : {}),
@@ -87,21 +92,23 @@ export async function GET(request: Request, context: MediaContext) {
     }
     if (request.method === "HEAD") return new Response(null, { headers: responseHeaders });
     const handle = file;
+    const release = dispose;
     const source = handle.createReadStream({ start, end });
     const abort = () => source.destroy();
     request.signal.addEventListener("abort", abort, { once: true });
     source.once("close", () => {
       request.signal.removeEventListener("abort", abort);
-      void handle.close().catch((error) => console.error("Media file close failed", error));
+      void release().catch((error) => console.error("Media cleanup failed", error));
     });
     if (request.signal.aborted) source.destroy();
     const stream = Readable.toWeb(source) as ReadableStream<Uint8Array>;
     file = undefined; // The stream owns and closes the file, including on cancellation.
+    dispose = undefined;
     return new Response(stream, { status, headers: responseHeaders });
   } catch {
     return new Response(null, { status: 404, headers: privateHeaders });
   } finally {
-    await file?.close();
+    await dispose?.();
   }
 }
 

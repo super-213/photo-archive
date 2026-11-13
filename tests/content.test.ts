@@ -14,7 +14,7 @@ process.env.PHOTO_ARCHIVE_DATA_DIR = directory;
 process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = "测试作者";
 process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = "© 测试作者 保留所有权利";
 delete process.env.BETTER_AUTH_URL;
-const { importPhoto, rebuildPhotoPreviews, getMediaRecord, readMedia, maxUploadBytes } =
+const { importPhoto, rebuildPhotoPreviews, getMediaRecord, readMedia, openCopyrightDownload, maxUploadBytes } =
   await import("../src/lib/server/media");
 const {
   listPhotos,
@@ -524,7 +524,7 @@ test("upload processing is bounded and releases capacity after malformed uploads
   assert.equal(retry.status, 201);
 });
 
-test("lossless previews match resized pixels and rebuilding preserves source and manual metadata", async () => {
+test("previews use lossy WebP at the correct sizes and rebuild legacy files without changing originals or metadata", async () => {
   const pixels = Buffer.alloc(1600 * 1000 * 3);
   for (let index = 0; index < pixels.length; index++) pixels[index] = (index * 17 + Math.floor(index / 59)) % 256;
   const source = await sharp(pixels, { raw: { width: 1600, height: 1000, channels: 3 } })
@@ -533,17 +533,23 @@ test("lossless previews match resized pixels and rebuilding preserves source and
   assert.equal(photo.title, "高质量样片");
   assert.ok(photo.previewSrc);
   for (const [variant, width] of [["thumbnail", 420], ["preview", 840], ["lightbox", 2560]] as const) {
-    const expected = await sharp(source).rotate().resize({ width, height: width, fit: "inside", withoutEnlargement: true }).raw().toBuffer();
-    const actual = await sharp(await readMedia(getMediaRecord(photo.id, variant)!)).raw().toBuffer();
-    assert.deepEqual(actual, expected);
+    const encoded = await readMedia(getMediaRecord(photo.id, variant)!);
+    const metadata = await sharp(encoded).metadata();
+    assert.equal(metadata.format, "webp");
+    assert.equal(metadata.width, Math.min(width, 1600));
+    assert.equal(metadata.height, Math.round(1000 * Math.min(1, width / 1600)));
+    assert.ok(encoded.includes(Buffer.from("VP8 ")), `${variant} must use lossy WebP`);
   }
   updatePhoto(photo.id, photoInput.parse({ ...photo, title: "人工标题", tags: ["保留"] }));
   const record = getMediaRecord(photo.id, "preview")!;
-  const legacy = await sharp(source).resize(840).webp({ quality: 20 }).toBuffer();
+  const legacy = await sharp(source).resize({ width: 840, height: 840, fit: "inside" }).webp({ lossless: true }).toBuffer();
   await writeFile(path.join(mediaDirectory, record.storage_key, record.filename), legacy);
-  getDatabase().prepare("UPDATE media_variant SET encoding_version=1 WHERE photo_id=? AND variant='preview'").run(photo.id);
+  getDatabase().prepare("UPDATE media_variant SET encoding_version=4 WHERE photo_id=? AND variant='preview'").run(photo.id);
   assert.equal(await rebuildPhotoPreviews(photo.id), true);
   assert.equal(await rebuildPhotoPreviews(photo.id), false);
+  const rebuilt = await readMedia(getMediaRecord(photo.id, "preview")!);
+  assert.ok(rebuilt.includes(Buffer.from("VP8 ")));
+  assert.ok(rebuilt.length < legacy.length);
   assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), source);
   assert.equal(getPhoto(photo.id)!.title, "人工标题");
   assert.deepEqual(getPhoto(photo.id)!.tags, ["保留"]);
@@ -584,8 +590,11 @@ test("streamed uploads above 80 MiB preserve original bytes and support public r
   const original = await mediaRoute.GET(new Request(url), context);
   const downloaded = createHash("sha256");
   for await (const chunk of Readable.fromWeb(original.body! as Parameters<typeof Readable.fromWeb>[0])) downloaded.update(chunk);
-  const downloadRecord = getMediaRecord(photo.id, "download")!;
-  const downloadBytes = await readMedia(downloadRecord);
+  const temporaryDownload = await openCopyrightDownload(photo.id);
+  let downloadBytes: Buffer;
+  try { downloadBytes = await temporaryDownload.file.readFile(); }
+  finally { await temporaryDownload.dispose(); }
+  assert.equal(getMediaRecord(photo.id, "download"), undefined);
   assert.equal(downloaded.digest("hex"), createHash("sha256").update(downloadBytes).digest("hex"));
   const partial = await mediaRoute.GET(new Request(url, { headers: { range: "bytes=0-99" } }), context);
   assert.equal(partial.status, 206);

@@ -46,8 +46,8 @@ test("only public canonical WebP previews advertise shared caching; legacy and q
   for (const { name } of previewVariants) {
     const response = await get(`${name}.webp`, "", { cookie: "unrelated=value" });
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get("cache-control"), "private, no-store, max-age=0");
-    assert.equal(response.headers.get("cloudflare-cdn-cache-control"), "public, max-age=60, must-revalidate");
+    assert.equal(response.headers.get("cache-control"), "private, max-age=14400");
+    assert.equal(response.headers.get("cloudflare-cdn-cache-control"), "public, max-age=14400, must-revalidate");
     assert.doesNotMatch(response.headers.get("vary") || "", /cookie/i);
     assert.equal(response.headers.get("set-cookie"), null);
     assert.equal(response.headers.get("x-content-type-options"), "nosniff");
@@ -65,7 +65,8 @@ test("only public canonical WebP previews advertise shared caching; legacy and q
   await first.arrayBuffer();
   const cached = await get("preview.webp", "", { "if-none-match": etag });
   assert.equal(cached.status, 304);
-  assert.equal(cached.headers.get("cloudflare-cdn-cache-control"), "public, max-age=60, must-revalidate");
+  assert.equal(cached.headers.get("cache-control"), "private, max-age=14400");
+  assert.equal(cached.headers.get("cloudflare-cdn-cache-control"), "public, max-age=14400, must-revalidate");
 });
 
 test("originals, downloads, invalid variants and revoked previews never advertise shared caching", async () => {

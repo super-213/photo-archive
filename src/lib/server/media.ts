@@ -55,7 +55,7 @@ async function generatePreviews(source: string, directory: string, copyright: Co
       .resize({ width: variant.width, height: variant.width, fit: "inside", withoutEnlargement: true })
       .keepIccProfile();
     if (copyright) image.withXmp(createCopyrightXmp(copyright));
-    await image.webp({ lossless: true, exact: true, effort: 4 })
+    await image.webp({ quality: 90, effort: 4 })
       .toFile(path.join(directory, `${variant.name}.webp`));
   }
 }
@@ -97,8 +97,6 @@ export async function importPhotoFile(source: string, filename: string, options:
     const copyright = options.isSample ? undefined : getCopyrightSettings();
     const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
     await generatePreviews(originalFile, staging, copyright);
-    const downloadName = `download.${formats[format]}`;
-    if (copyright) await writeCopyrightDownload(originalFile, path.join(staging, downloadName), mimeType, copyright);
     const exif = await exifr
       .parse(originalFile, {
         gps: false,
@@ -178,10 +176,6 @@ export async function importPhotoFile(source: string, filename: string, options:
           originalName,
           mimeType,
         );
-        if (copyright) {
-          db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version) VALUES (?,?,?,?,?)")
-            .run(id, "download", downloadName, mimeType, copyright.version);
-        }
         for (const variant of previewVariants)
           db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version) VALUES (?,?,?,?,?)").run(
             id,
@@ -252,7 +246,7 @@ export async function rebuildPhotoPreviews(id: string) {
   if (!original) throw new AppError("原图不存在", 404);
   const copyright = original.is_sample ? undefined : getCopyrightSettings();
   const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
-  await ensureCopyrightDownload(id);
+  const retiredDownload = await removeRetiredDownload(id);
   const current = db.prepare(
     "SELECT variant FROM media_variant WHERE photo_id=? AND encoding_version=? AND variant!='original'",
   ).all(id, encodingVersion) as { variant: string }[];
@@ -260,7 +254,7 @@ export async function rebuildPhotoPreviews(id: string) {
   if (previewVariants.every((variant) => current.some((row) => row.variant === variant.name))) {
     const retired = await removeRetiredGrid(id, directory);
     if (retired && original.visibility === "public") queuePreviewCachePurge(id);
-    return retired;
+    return retired || retiredDownload;
   }
   const temporary = await mkdtemp(path.join(directory, ".previews-"));
   try {
@@ -282,34 +276,38 @@ export async function rebuildPhotoPreviews(id: string) {
   }
 }
 
-const pendingDownloads = new Map<string, Promise<NonNullable<ReturnType<typeof getMediaRecord>> | undefined>>();
-
-export function ensureCopyrightDownload(id: string) {
-  const pending = pendingDownloads.get(id);
-  if (pending) return pending;
-  const task = createCopyrightDownload(id).finally(() => pendingDownloads.delete(id));
-  pendingDownloads.set(id, task);
-  return task;
+async function removeRetiredDownload(id: string) {
+  const record = getMediaRecord(id, "download");
+  if (!record) return false;
+  const original = getMediaRecord(id, "original");
+  // Delete only the known derived filename, never the uploaded original.
+  if (original && record.filename === `download${path.extname(original.filename)}`)
+    await rm(path.join(mediaDirectory, record.storage_key, record.filename), { force: true });
+  return getDatabase().prepare("DELETE FROM media_variant WHERE photo_id=? AND variant='download'").run(id).changes > 0;
 }
 
-async function createCopyrightDownload(id: string) {
+export async function openCopyrightDownload(id: string) {
   const original = getMediaRecord(id, "original");
   const copyright = getCopyrightSettings();
-  if (!original || original.is_sample || !copyright) return original;
-  const existing = getMediaRecord(id, "download");
-  if (existing?.encoding_version === copyright.version) return existing;
+  if (!original) throw new AppError("原图不存在", 404);
+  if (original.is_sample || !copyright) {
+    const file = await openMedia(original);
+    return { file, dispose: () => file.close() };
+  }
   const directory = path.join(mediaDirectory, original.storage_key);
   const temporary = await mkdtemp(path.join(directory, ".copyright-"));
   const filename = `download${path.extname(original.filename)}`;
   try {
     await writeCopyrightDownload(path.join(directory, original.filename), path.join(temporary, filename), original.mime_type, copyright);
-    await rename(path.join(temporary, filename), path.join(directory, filename));
-    getDatabase().prepare(`INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version)
-      VALUES (?,?,?,?,?) ON CONFLICT(photo_id,variant) DO UPDATE SET
-      filename=excluded.filename,mime_type=excluded.mime_type,encoding_version=excluded.encoding_version`)
-      .run(id, "download", filename, original.mime_type, copyright.version);
-    return getMediaRecord(id, "download");
-  } finally {
+    const file = await open(path.join(temporary, filename), "r");
+    let disposal: Promise<void> | undefined;
+    const dispose = () => disposal ??= (async () => {
+      try { await file.close(); }
+      finally { await rm(temporary, { recursive: true, force: true }); }
+    })();
+    return { file, dispose };
+  } catch (error) {
     await rm(temporary, { recursive: true, force: true });
+    throw error;
   }
 }

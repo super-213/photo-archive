@@ -122,13 +122,13 @@ npm run photos:import -- --retry
 
 ## 展示画质与原图
 
-网页按显示尺寸和缩放倍数选择最长边 420、840、2560 像素的展示图，使用 WebP 无损编码并保留 ICC 色彩配置。无损编码保留缩放后图像的像素，缩小分辨率会减少细节。上传原文件按字节存档，公开下载取得带版权元数据的完整分辨率副本。
+网页按显示尺寸和缩放倍数选择最长边 420、840、2560 像素的展示图，三档均使用 WebP Quality 90 有损编码并保留 ICC 色彩配置，在画质和文件体积之间取舍，以加快图片加载。每张照片长期保存上传原文件和三档展示图，共四份文件。上传原文件按字节存档，公开下载时临时生成带版权元数据的完整分辨率副本，传输结束或取消后清理；不再长期保存 `download` 副本。下载前会增加一次元数据处理，无版权配置或示例照片直接读取原文件。
 
 展示档位为 `thumbnail`（420）、`preview`（840）、`lightbox`（2560）。普通页面与后台编辑区最多使用 840 像素预览，大图浏览器才可按显示大小和缩放选择 2560 像素版本；宽屏和高像素密度设备上的普通预览可能较软，可点开大图查看细节。1440 像素的 `grid` 不再生成，旧的 `/grid` 和 `/grid.webp` 链接转用预览图且不进入共享缓存。
 
-严格无损展示图的文件体积可能超过原先质量 82/90 的有损展示图，手机和小网格会优先选择较小尺寸。大图先显示缩略预览。真实作品的观看效果和弱网加载速度需要结合照片内容验证。
+手机和小网格会优先选择较小尺寸，大图先显示缩略预览。Quality 90 不等同于无损，具体文件体积和观看效果取决于照片内容。编码版本已升级，重建命令会将旧版无损展示图转换为 Quality 90。
 
-已有照片可执行以下命令，从保存的原图重新生成展示图。
+已有照片可执行以下命令，从保存的原图更新展示图，并清理旧的 `download` 副本及其数据库记录。原文件保持不变。
 
 ```sh
 npm run media:rebuild
@@ -136,7 +136,7 @@ npm run media:rebuild
 
 重建按编码版本跳过已更新照片，每张展示图写入完成后原子替换，保留照片元信息与系列编排。再次上传相同照片也会补齐旧版展示图。`db:init` 会同步升级已有样例照片。
 
-已有媒体库执行 `npm run media:rebuild` 时，还会删除已停用的 `grid.webp` 派生文件及记录。已有三档均有效时不会重新编码，原图、版权下载副本、照片信息和公开状态保持不变。CDN 规则文件已精简为三档；此前包含 `grid.webp` 的规则可同步更新，旧地址的源站响应会明确禁止 CDN 缓存。
+已有媒体库执行 `npm run media:rebuild` 时，还会删除已停用的 `grid.webp` 派生文件及记录。已有三档均有效时不会重新编码，原图、照片信息和公开状态保持不变。CDN 规则文件已精简为三档；此前包含 `grid.webp` 的规则可同步更新，旧地址的源站响应会明确禁止 CDN 缓存。
 
 ## 版权元数据
 
@@ -153,17 +153,17 @@ PHOTO_ARCHIVE_COPYRIGHT_NOTICE="© Your Name. All rights reserved."
 
 - 三档展示图写入 XMP `dc:creator` 与 `dc:rights`，并保留 ICC 色彩配置。
 - 原尺寸下载副本写入 XMP，JPEG 与 TIFF 另外写入 EXIF Artist、Copyright。ExifTool 只编辑元数据，JPEG 图像压缩数据经过比对验证。
-- 上传原件作为存档和去重依据。启用版权配置后，下载副本的字节与哈希会变化，每张自有照片的副本额外占用接近一份原图的存储空间。
+- 上传原件作为存档和去重依据。启用版权配置后，下载副本的字节与哈希会变化，副本仅在下载请求期间临时占用磁盘，完成或取消后清理。
 - 标记为示例素材的照片沿用来源作者归属。
 
-`npm run media:rebuild` 会升级历史展示图并生成版权下载副本，首次访问旧照片下载地址时也会补齐副本。同一照片的并发生成合并处理，公开状态在每次读取前验证。版权字段可以被元数据编辑工具修改或删除。
+`npm run media:rebuild` 会升级历史展示图并清理旧的常驻版权下载副本。下载时根据当前版权配置独立生成临时副本，公开状态在生成前和读取前验证。版权字段可以被元数据编辑工具修改或删除。
 
 ## 本地数据
 
 默认数据目录为 `.data/`，已加入 Git 忽略。
 
 - `archive.sqlite` 保存照片、标签、系列、关联、管理员与会话。
-- `media/` 保存不可预测目录名下的存档原图、版权下载副本与三档无损 WebP 展示图。
+- `media/` 保存不可预测目录名下的存档原图与三档 WebP Quality 90 展示图，版权下载副本仅临时生成。
 - `auth-secret` 保存自动生成的会话签名密钥，文件权限为仅当前用户读写。
 
 数据库启用外键、WAL 和事务。业务结构迁移记录在 `schema_migration` 中，认证表通过 Better Auth 的迁移工具维护。迁移执行由 `db:init` 完成，运行时也会检查业务表结构。
@@ -175,24 +175,24 @@ PHOTO_ARCHIVE_COPYRIGHT_NOTICE="© Your Name. All rights reserved."
 网页使用 `/media/照片ID/thumbnail.webp`、`preview.webp`、`lightbox.webp` 三档地址。只有公开照片的这些规范地址允许 CDN 缓存，响应为：
 
 ```http
-Cache-Control: private, no-store, max-age=0
-Cloudflare-CDN-Cache-Control: public, max-age=60, must-revalidate
+Cache-Control: private, max-age=14400
+Cloudflare-CDN-Cache-Control: public, max-age=14400, must-revalidate
 ```
 
-源站要求浏览器不保存持久副本，Cloudflare 则按专用响应头在 60 秒内直接提供已缓存的公开展示图，不必每次通过 Tunnel 回源；不启用过期副本兜底。两类缓存使用独立策略，普通响应头中的 `private` 不代表照片的公开状态，只有源站确认为公开的三档展示图才会附带 CDN 允许缓存的响应头。原图下载 `/original`、内部 `download`、草稿和私有照片、错误响应、带查询参数的图片请求均不允许 Cloudflare 缓存。旧版无扩展名的展示地址保持兼容，只使用浏览器私有缓存及 ETag。
+浏览器和 Cloudflare 均可复用 4 小时内的公开展示图，减少重复下载及通过 Tunnel 回源，以图片加载速度为优先；不启用过期副本兜底。两类缓存通过独立响应头控制，普通响应头中的 `private` 表示仅允许浏览器等私有缓存保存，不代表照片的公开状态；Cloudflare 按专用响应头缓存源站确认为公开的三档展示图。原图下载 `/original`、草稿和私有照片、错误响应、带查询参数的图片请求均不允许 Cloudflare 缓存。旧版无扩展名的展示地址保持兼容，使用浏览器私有缓存及 ETag，每次复用前验证。
 
 Cloudflare 默认识别 `.webp`，因此在默认缓存设置下不必另设“缓存所有内容”规则。需要显式规则时，参考 [精确缓存规则 JSON](docs/cloudflare-cache-rules.json)：仅将三档展示地址标为 Eligible for cache，Edge TTL 选择“有响应头则遵循、无响应头则绕过”，Browser TTL 选择“遵循源站”。另设规则绕过后台、API、原图和下载地址。该文件是供 Cloudflare Cache Rules 使用的配置示例，不会自动修改 Cloudflare 账号；使用其他域名时同步替换其中的主机名。不要强制覆盖源站 TTL 或缓存私有响应。Cloudflare 的 [默认缓存行为](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/) 和 [规则设置说明](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/) 描述了这些设置。
 
-控制台操作：打开本站域名的 Caching → Cache Rules，新建规则，粘贴 [可直接复制的匹配表达式](docs/cloudflare-public-previews.expression)，将缓存资格设为 Eligible for cache，Edge TTL 设为使用源站响应头、无响应头则绕过，Browser TTL 设为 Respect origin。将该规则置于其他会覆盖这些地址的规则之后。上线时必须确认公网响应仍保留 `Cache-Control: private, no-store`；若被改写为 `max-age=14400`，说明 Cloudflare 的浏览器 TTL 仍覆盖源站，应先修正规则，不能仅凭 `HIT` 判断撤回策略已完整生效。已经下发给浏览器的旧缓存不受 CDN 清理控制。
+控制台操作：打开本站域名的 Caching → Cache Rules，新建规则，粘贴 [可直接复制的匹配表达式](docs/cloudflare-public-previews.expression)，将缓存资格设为 Eligible for cache，Edge TTL 设为使用源站响应头、无响应头则绕过，Browser TTL 设为 Respect origin。将该规则置于其他会覆盖这些地址的规则之后。上线时确认公开展示图返回 `Cache-Control: private, max-age=14400`，重复请求可命中浏览器缓存或 Cloudflare `HIT`；Cloudflare 的 `Age` 可用于观察边缘缓存的年龄。缓存到期后可用 ETag 验证未变更的图片，减少重复传输。
 
-**撤回时的失效行为**：照片转为草稿或私有后，源站立即限制访问，但此前已缓存的公开展示图在 CDN 过期前仍可能短暂可见，默认 TTL 为 60 秒。后台编辑界面有相应提示。配置以下环境变量并重启后，撤回和重建展示图会额外触发精确 URL 清理：
+**撤回时的失效行为**：照片转为草稿或私有后，源站立即限制访问；已经缓存的公开展示图可在 4 小时有效期内继续复用。Cloudflare 清理不影响访客已经保存的浏览器缓存。配置以下环境变量并重启后，撤回和重建展示图会额外触发精确 URL 清理，以提前使 CDN 副本失效：
 
 ```dotenv
 PHOTO_ARCHIVE_CLOUDFLARE_ZONE_ID=你的32位ZoneID
 PHOTO_ARCHIVE_CLOUDFLARE_API_TOKEN=你的本站缓存清理Token
 ```
 
-Token 仅需对应 Zone 的 `Cache Purge` 权限；Zone 应覆盖 `BETTER_AUTH_URL` 中的正式域名。密钥只放在服务器环境文件，不要放入前端或 Git。清理任务与数据库更新一起持久化，异步执行、失败重试、重启后恢复；清理三档展示图和历史 grid 地址，不清理原图或下载副本，也不清空整个域名缓存。未配置凭据或清理失败时，仍以 60 秒 TTL 为失效兜底。清理实现遵循 [Cloudflare 按 URL 清理接口](https://developers.cloudflare.com/api/resources/cache/methods/purge/)。
+Token 仅需对应 Zone 的 `Cache Purge` 权限；Zone 应覆盖 `BETTER_AUTH_URL` 中的正式域名。密钥只放在服务器环境文件，不要放入前端或 Git。清理任务与数据库更新一起持久化，异步执行、失败重试、重启后恢复；清理三档展示图和历史 grid 地址，不清理原图或下载副本，也不清空整个域名缓存。未配置凭据或清理失败时，仍以 4 小时 TTL 到期为准。清理实现遵循 [Cloudflare 按 URL 清理接口](https://developers.cloudflare.com/api/resources/cache/methods/purge/)。
 
 验证时首次访问可能返回 `CF-Cache-Status: MISS`，同一节点随后应返回 `HIT`；缓存过期后可能为 `REVALIDATED` 或重新取回。原图、下载和私有资源不应出现 `HIT`。
 
@@ -219,4 +219,4 @@ npm run typecheck
 npm run build
 ```
 
-自动化测试使用隔离的临时数据库，覆盖版权中文字段、JPEG 压缩数据一致性、示例署名排除、版权副本并发补齐、旧数据库迁移、布局分组与顺序保存、题材筛选与旧 URL 兼容、缩放锚点和平移边界，查询次数与分页边界、条件媒体请求与撤回、请求体大小、上传并发容量释放、初始密码配置清理，以及草稿与私有媒体访问、EXIF 与方向处理、重复及并发上传、手动元信息保留、发布校验、独立排序、撤回联动、并发编辑冲突、CSRF、关闭注册和退出登录。
+自动化测试使用隔离的临时数据库，覆盖版权中文字段、JPEG 压缩数据一致性、示例署名排除、临时下载的并发隔离与清理、旧版权副本清理、旧数据库迁移、布局分组与顺序保存、题材筛选与旧 URL 兼容、缩放锚点和平移边界，查询次数与分页边界、条件媒体请求与撤回、请求体大小、上传并发容量释放、初始密码配置清理，以及草稿与私有媒体访问、EXIF 与方向处理、重复及并发上传、手动元信息保留、发布校验、撤回联动、并发编辑冲突、CSRF、关闭注册和退出登录。

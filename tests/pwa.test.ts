@@ -116,7 +116,7 @@ test("worker precaches only the offline shell and brand assets; updates require 
   assert.equal(worker.activations(), 0);
   const cached = [...worker.stores.values()][0];
   assert.ok([...cached.keys()].some((url) => url.endsWith("/offline.html")));
-  assert.ok([...cached.keys()].every((url) => /\/(offline\.html|logo(?:-light)?\.svg|pwa\/icon-[\w-]+\.png)$/.test(url)));
+  assert.ok([...cached.keys()].every((url) => /\/(offline\.html|logo(?:-light)?\.svg|favicon\.ico|pwa\/icon-[\w-]+\.png)$/.test(url)));
   worker.stores.set("pianyu-pwa-obsolete", new Map());
   worker.stores.set("another-app-cache", new Map());
   await worker.dispatch("activate");

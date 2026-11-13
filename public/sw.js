@@ -1,11 +1,12 @@
 // Increment this version when changing the offline page or precached assets.
 const CACHE_PREFIX = "pianyu-pwa-";
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v3`;
 const OFFLINE_URL = "/offline.html";
 const ASSETS = new Set([
   OFFLINE_URL,
   "/logo.svg",
   "/logo-light.svg",
+  "/favicon.ico",
   "/pwa/icon-192.png",
   "/pwa/icon-512.png",
   "/pwa/icon-maskable-512.png",

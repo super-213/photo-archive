@@ -1,0 +1,17 @@
+.recovery {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 100px 28px 120px;
+  color: #202020;
+  font-family: "Inter", "Noto Sans SC Variable", system-ui, sans-serif;
+}
+.eyebrow { font-size: 12px; letter-spacing: .12em; }
+.recovery h1 { margin: 24px 0; font-size: clamp(28px, 5vw, 44px); font-weight: 400; line-height: 1.5; }
+.recovery p { font-size: 14px; line-height: 1.9; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin: 32px 0 12px; }
+.actions button, .actions a { color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.actions button { background: transparent; border: 1px solid #66645f; padding: 12px 20px; min-height: 44px; }
+.actions button:disabled { opacity: .5; cursor: wait; }
+.actions a { padding: 12px 0; text-decoration: underline; text-underline-offset: 5px; }
+.actions :focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+.reference { color: #66645f; overflow-wrap: anywhere; }

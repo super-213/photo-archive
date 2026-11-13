@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { getAdministrator } from "./auth";
 import { AppError } from "./validation";
 import { getRequestOrigin } from "./origins";
+import { recordServerError } from "./monitoring";
 
 export function requireSameOrigin(request: Request) {
   if (request.headers.get("origin") !== getRequestOrigin(request))
@@ -41,7 +42,8 @@ export async function apiAction(action: () => Promise<Response> | Response) {
       );
     if (error instanceof SyntaxError)
       return json({ error: "请求数据格式无效" }, 400);
-    console.error("Admin operation failed", error);
+    console.error("API operation failed", error);
+    if (process.env.NODE_ENV === "production") recordServerError(error, "/api/[route]");
     return json({ error: "操作失败，请稍后重试并检查服务日志" }, 500);
   }
 }

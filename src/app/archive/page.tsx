@@ -1,9 +1,9 @@
-import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { listPhotoPage } from "@/lib/server/store";
 import { readArchiveFilters } from "@/lib/archive-filters";
 import { Archive } from "@/components/archive";
 
-export const metadata: Metadata = { title: "所藏" };
+export const metadata = pageMetadata("所藏", "浏览片隅的公开摄影档案，按题材探索风光、街拍、旅行与生活中的瞬间。", "/archive");
 
 export const dynamic = "force-dynamic";
 

@@ -1,6 +1,22 @@
 .admin-shell {
   min-height: 100dvh;
 }
+.monitoring-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 28px 0 16px; }
+.monitoring-card { border: 1px solid var(--color-border); padding: 22px; }
+.monitoring-card h2 { font-size: 16px; }
+.monitoring-card h2 span { display: block; font-size: 12px; color: var(--color-text-muted); margin-top: 8px; }
+.monitoring-value { font-size: 28px; margin: 24px 0 8px; }
+.monitoring-rating { margin-top: 12px; font-size: 12px; }
+.monitoring-rating[data-rating="good"] { color: #3a6a42; }
+.monitoring-rating[data-rating="needs-improvement"] { color: #866015; }
+.monitoring-rating[data-rating="poor"] { color: #9b3426; }
+.monitoring-section { margin-top: 42px; }
+.monitoring-section h2 { font-size: 22px; margin-bottom: 12px; }
+.monitoring-table-wrap { overflow-x: auto; margin-top: 16px; }
+.monitoring-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.monitoring-table caption { text-align: left; color: var(--color-text-muted); padding-bottom: 12px; }
+.monitoring-table th, .monitoring-table td { border-bottom: 1px solid var(--color-border); padding: 14px 16px 14px 0; line-height: 1.7; overflow-wrap: anywhere; min-width: 120px; }
+.monitoring-table th { font-weight: 500; }
 .admin-header {
   padding: 26px 4vw;
   border-bottom: 1px solid var(--color-border);

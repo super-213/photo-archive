@@ -144,6 +144,17 @@ export function getDatabase() {
     )`);
     db.prepare("INSERT INTO schema_migration VALUES (7, ?)").run(new Date().toISOString());
   }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 8").get()) return;
+    db.exec(`CREATE TABLE telemetry_event (
+      seq INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL CHECK(kind IN ('vital','error')), path TEXT NOT NULL,
+      name TEXT NOT NULL, value REAL, source TEXT NOT NULL DEFAULT '', digest TEXT NOT NULL DEFAULT '',
+      recorded_at INTEGER NOT NULL
+    );
+    CREATE INDEX telemetry_event_time ON telemetry_event(recorded_at);`);
+    db.prepare("INSERT INTO schema_migration VALUES (8, ?)").run(new Date().toISOString());
+  }).immediate();
   database = db;
   return db;
 }

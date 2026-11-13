@@ -27,6 +27,9 @@ export function AdminNavigation() {
         >
           摄影系列
         </Link>
+        <Link href="/admin/monitoring" aria-current={path.startsWith("/admin/monitoring") ? "page" : undefined}>
+          运行监测
+        </Link>
       </nav>
       <div>
         <Link href="/" target="_blank">

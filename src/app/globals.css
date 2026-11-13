@@ -129,11 +129,14 @@ em[lang="zh-CN"] {
   justify-content: space-between;
 }
 .wordmark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 400;
-  letter-spacing: 0.08em;
-  line-height: 1.4;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
   white-space: nowrap;
 }
 .site-footer {

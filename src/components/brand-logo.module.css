@@ -1,23 +1,25 @@
 .logo {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   flex-shrink: 0;
   vertical-align: middle;
   font-family: var(--font-display, "Songti SC", serif);
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 400;
-  letter-spacing: .08em;
-  line-height: 1.4;
+  letter-spacing: .04em;
+  line-height: 1.2;
   white-space: nowrap;
 }
-.logo img { display: block; width: 52px; height: 52px; flex-shrink: 0; }
+/* The supplied SVG has 14.5% internal padding: 28px renders a 20px mark.
+   Offset that padding to align the visible mark with the page content edge. */
+.logo img { display: block; width: 28px; height: 28px; margin-inline-start: -4px; flex-shrink: 0; }
 .light { color: #f7f6f2; }
-.small { gap: 3px; font-size: 14px; }
-.small img { width: 30px; height: 30px; }
+.small { gap: 6px; font-size: 14px; }
+.small img { width: 18px; height: 18px; margin-inline-start: -2px; }
 @media (max-width: 767px) {
   .logo { font-size: 24px; }
-  .logo img { width: 44px; height: 44px; }
+  .logo img { width: 26px; height: 26px; }
   .small { font-size: 14px; }
-  .small img { width: 30px; height: 30px; }
+  .small img { width: 18px; height: 18px; }
 }

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminRequest } from "./api";
 import { site } from "@/lib/content";
+import { BrandLogo } from "../brand-logo";
 
 export function AdminLogin({
   configured,
@@ -16,8 +17,8 @@ export function AdminLogin({
   const [error, setError] = useState("");
   return (
     <div className="admin-login">
-      <a href="/" className="wordmark">
-        {site.wordmark}
+      <a href="/" className="wordmark" aria-label={`${site.name}，返回所见`}>
+        <BrandLogo />
       </a>
       <div>
         <p className="eyebrow">内容管理</p>

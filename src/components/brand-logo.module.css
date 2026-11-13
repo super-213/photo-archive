@@ -1,0 +1,23 @@
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  font-family: var(--font-display, "Songti SC", serif);
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: .08em;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.logo img { display: block; width: 52px; height: 52px; flex-shrink: 0; }
+.light { color: #f7f6f2; }
+.small { gap: 3px; font-size: 14px; }
+.small img { width: 30px; height: 30px; }
+@media (max-width: 767px) {
+  .logo { font-size: 24px; }
+  .logo img { width: 44px; height: 44px; }
+  .small { font-size: 14px; }
+  .small img { width: 30px; height: 30px; }
+}

@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { adminRequest } from "./api";
 import { site } from "@/lib/content";
+import { BrandLogo } from "../brand-logo";
 
 export function AdminNavigation() {
   const path = usePathname();
@@ -11,8 +12,8 @@ export function AdminNavigation() {
   const [error, setError] = useState("");
   return (
     <header className="admin-header">
-      <Link href="/admin/photos" className="wordmark">
-        {site.wordmark}
+      <Link href="/admin/photos" className="wordmark" aria-label={`${site.name}，返回照片管理`}>
+        <BrandLogo />
       </Link>
       <nav aria-label="管理导航">
         <Link

@@ -6,6 +6,7 @@
   font-family: "Inter", "Noto Sans SC Variable", system-ui, sans-serif;
 }
 .eyebrow { font-size: 12px; letter-spacing: .12em; }
+.brand { display: flex; align-items: center; gap: 12px; }
 .recovery h1 { margin: 24px 0; font-size: clamp(28px, 5vw, 44px); font-weight: 400; line-height: 1.5; }
 .recovery p { font-size: 14px; line-height: 1.9; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; margin: 32px 0 12px; }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Photo } from "@/lib/content";
 import { Arrow, Close } from "./icons";
 import { preloadAdjacentPhotos } from "@/lib/photo-preload";
+import { BrandLogo } from "./brand-logo";
 
 export function PhotoViewer({
   photos,
@@ -115,7 +116,7 @@ export function PhotoViewer({
       }}
     >
       <div className="viewer-header">
-        <span>PHOTO ARCHIVE</span>
+        <span><BrandLogo light small /></span>
         <span className="viewer-counter" aria-live="polite">
           {String(index + 1).padStart(2, "0")} /{" "}
           {String(photos.length).padStart(2, "0")}

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { site } from "@/lib/content";
+import { BrandLogo } from "./brand-logo";
 
 export function SiteFooter() {
   const pathname = usePathname();
@@ -9,7 +10,7 @@ export function SiteFooter() {
 
   return (
     <footer className="site-footer page-gutter">
-      <p>{site.name} / <span lang="en">PHOTOGRAPHY</span></p>
+      <p className="footer-brand"><BrandLogo small /><span lang="en">/ PHOTOGRAPHY</span></p>
       <p lang="en">{site.tagline}</p>
     </footer>
   );

@@ -148,6 +148,11 @@ em[lang="zh-CN"] {
   letter-spacing: 0.1em;
   line-height: 1.8;
 }
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .site-header nav {
   display: flex;
   align-items: center;

@@ -3,6 +3,7 @@
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { site } from "@/lib/content";
+import { BrandLogo } from "./brand-logo";
 
 function NavigationLabel({ children }: { children: React.ReactNode }) {
   const { pending } = useLinkStatus();
@@ -15,7 +16,7 @@ export function SiteHeader() {
   return (
     <header className="site-header page-gutter">
       <Link href="/" prefetch={true} className="wordmark" aria-label={`${site.name}，返回所见`}>
-        {site.wordmark}
+        <BrandLogo />
       </Link>
       <nav aria-label="主导航">
         {[

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { after, test } from "node:test";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -10,6 +9,7 @@ import sharp from "sharp";
 
 const directory = await mkdtemp(path.join(os.tmpdir(), "photo-archive-test-"));
 process.env.PHOTO_ARCHIVE_DATA_DIR = directory;
+process.env.PHOTO_ARCHIVE_ORIGINAL_DOWNLOAD = "false";
 process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = "测试作者";
 process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = "© 测试作者 保留所有权利";
 delete process.env.BETTER_AUTH_URL;
@@ -103,10 +103,10 @@ test("uploads normalize orientation, extract EXIF, strip preview metadata and be
     assert.equal(metadata.exif, undefined);
     assert.equal(metadata.orientation, undefined);
   }
-  assert.deepEqual(
-    await readMedia(getMediaRecord(photoId, "original")!),
-    buffer,
-  );
+  assert.equal(getMediaRecord(photoId, "original"), undefined);
+  const record = getMediaRecord(photoId, "lightbox")!;
+  assert.deepEqual((await readdir(path.join(mediaDirectory, record.storage_key))).sort(),
+    ["lightbox.webp", "preview.webp", "thumbnail.webp"]);
 });
 
 test("duplicate and concurrent uploads reuse one photo and preserve manual metadata", async () => {
@@ -189,7 +189,7 @@ test("original downloads are disabled for every visibility, including administra
         }
       }
     }
-    assert.ok(!(await readdir(path.join(mediaDirectory, getMediaRecord(photoId, "original")!.storage_key)))
+    assert.ok(!(await readdir(path.join(mediaDirectory, getMediaRecord(photoId, "lightbox")!.storage_key)))
       .some((name) => name.startsWith(".copyright-")));
   } finally {
     updatePhoto(photoId, photoInput.parse({ ...getPhoto(photoId), visibility: previous.visibility }));
@@ -418,7 +418,8 @@ test("photo associations have independent ordering and project deletion retains 
   );
   deleteProject(other.id, reordered.version);
   assert.ok(getPhoto(otherPhoto.id));
-  assert.ok(getMediaRecord(otherPhoto.id, "original"));
+  assert.ok(getMediaRecord(otherPhoto.id, "lightbox"));
+  assert.equal(getMediaRecord(otherPhoto.id, "original"), undefined);
 });
 
 test("withdrawing a photo atomically unpublishes affected projects and blocks stale edits", async () => {
@@ -615,7 +616,7 @@ test("upload processing is bounded and releases capacity after malformed uploads
   assert.equal(retry.status, 201);
 });
 
-test("previews use lossy WebP at the correct sizes and rebuild legacy files without changing originals or metadata", async () => {
+test("previews use lossy WebP at the correct sizes and rebuild legacy files without storing originals", async () => {
   const pixels = Buffer.alloc(1600 * 1000 * 3);
   for (let index = 0; index < pixels.length; index++) pixels[index] = (index * 17 + Math.floor(index / 59)) % 256;
   const source = await sharp(pixels, { raw: { width: 1600, height: 1000, channels: 3 } })
@@ -641,14 +642,14 @@ test("previews use lossy WebP at the correct sizes and rebuild legacy files with
   const rebuilt = await readMedia(getMediaRecord(photo.id, "preview")!);
   assert.ok(rebuilt.includes(Buffer.from("VP8 ")));
   assert.ok(rebuilt.length < legacy.length);
-  assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), source);
+  assert.equal(getMediaRecord(photo.id, "original"), undefined);
   assert.equal(getPhoto(photo.id)!.title, "人工标题");
   assert.deepEqual(getPhoto(photo.id)!.tags, ["保留"]);
   getDatabase().prepare("DELETE FROM photo WHERE id=?").run(photo.id);
   await rm(path.join(mediaDirectory, record.storage_key), { recursive: true, force: true });
 });
 
-test("streamed uploads above 80 MiB preserve originals internally and serve only display images with range support", async () => {
+test("streamed uploads above 80 MiB keep only displays and a source digest, with range support", async () => {
   const boundary = "large-photo-fixture";
   const padding = Buffer.alloc(1024 * 1024);
   const hash = createHash("sha256");
@@ -671,10 +672,12 @@ test("streamed uploads above 80 MiB preserve originals internally and serve only
   assert.equal(uploaded.status, 201);
   const { photo } = await uploaded.json();
   assert.equal(photo.title, "大幅原片");
-  const record = getMediaRecord(photo.id, "original")!;
-  const stored = createHash("sha256");
-  for await (const chunk of createReadStream(path.join(mediaDirectory, record.storage_key, record.filename))) stored.update(chunk);
-  assert.equal(stored.digest("hex"), hash.digest("hex"));
+  assert.equal(getMediaRecord(photo.id, "original"), undefined);
+  const record = getMediaRecord(photo.id, "lightbox")!;
+  const stored = getDatabase().prepare("SELECT digest FROM photo WHERE id=?").get(photo.id) as { digest: string };
+  assert.equal(stored.digest, hash.digest("hex"));
+  assert.deepEqual((await readdir(path.join(mediaDirectory, record.storage_key))).sort(),
+    ["lightbox.webp", "preview.webp", "thumbnail.webp"]);
   updatePhoto(photo.id, photoInput.parse({ ...photo, visibility: "public" }));
   const original = await mediaRoute.GET(new Request(`${origin}/media/${photo.id}/original`), {
     params: Promise.resolve({ id: photo.id, variant: "original" }),
@@ -743,20 +746,20 @@ test("streaming multipart rejects excessive files, oversized and interrupted upl
   assert.ok(!(await readdir(mediaDirectory)).some((name) => name.startsWith(".upload-")));
 });
 
-test("large-sensor JPEGs retain their original and display colour profiles", async () => {
+test("large-sensor JPEGs retain their display colour profiles without storing originals", async () => {
   const source = await sharp({ create: { width: 12000, height: 10000, channels: 3, background: "#d83a72" } })
     .withIccProfile("p3").jpeg({ quality: 95 }).toBuffer();
   const { photo } = await importPhoto(source, "120-megapixel.jpg");
   assert.equal(photo.width * photo.height, 120_000_000);
-  const original = getMediaRecord(photo.id, "original")!;
-  assert.deepEqual(await readMedia(original), source);
+  assert.equal(getMediaRecord(photo.id, "original"), undefined);
+  const display = getMediaRecord(photo.id, "lightbox")!;
   const sourceProfile = (await sharp(source).metadata()).icc;
   const preview = await sharp(await readMedia(getMediaRecord(photo.id, "lightbox")!)).metadata();
   assert.deepEqual(preview.icc, sourceProfile);
   assert.equal(preview.exif, undefined);
   assert.equal(Math.max(preview.width!, preview.height!), 2560);
   getDatabase().prepare("DELETE FROM photo WHERE id=?").run(photo.id);
-  await rm(path.join(mediaDirectory, original.storage_key), { recursive: true, force: true });
+  await rm(path.join(mediaDirectory, display.storage_key), { recursive: true, force: true });
 });
 
 test("sign-out revokes the server session", async () => {
@@ -825,7 +828,7 @@ test("login rate limits remain active", async () => {
   assert.ok(statuses.includes(429));
 });
 
-test("AVIF originals retain their correct media type and SVG is rejected", async () => {
+test("AVIF uploads retain their source media type without storing originals and SVG is rejected", async () => {
   const avif = await sharp({
     create: { width: 64, height: 40, channels: 3, background: "blue" },
   })
@@ -833,7 +836,7 @@ test("AVIF originals retain their correct media type and SVG is rejected", async
     .toBuffer();
   const result = await importPhoto(avif, "fixture.avif");
   assert.equal(
-    getMediaRecord(result.photo.id, "original")!.mime_type,
+    (getDatabase().prepare("SELECT mime_type FROM photo WHERE id=?").get(result.photo.id) as { mime_type: string }).mime_type,
     "image/avif",
   );
   await assert.rejects(

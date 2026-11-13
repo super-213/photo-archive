@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, test } from "node:test";
 import fs, { mkdtemp, mkdir, readFile, writeFile, symlink, readdir, realpath, lstat } from "node:fs/promises";
 import { rm } from "node:fs/promises";
@@ -9,6 +10,7 @@ import sharp from "sharp";
 
 const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "photo-folder-import-test-")));
 process.env.PHOTO_ARCHIVE_DATA_DIR = path.join(directory, "data");
+process.env.PHOTO_ARCHIVE_ORIGINAL_DOWNLOAD = "false";
 process.env.PHOTO_ARCHIVE_IMPORT_DIR = path.join(directory, "inbox");
 process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = "导入测试作者";
 process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = "© 导入测试";
@@ -30,6 +32,19 @@ after(async () => {
   db.close();
   await rm(directory, { recursive: true, force: true });
 });
+
+async function assertStoredDisplays(id: string, source: Buffer) {
+  assert.equal(getMediaRecord(id, "original"), undefined);
+  const digest = db.prepare("SELECT digest FROM photo WHERE id=?").get(id) as { digest: string };
+  assert.equal(digest.digest, createHash("sha256").update(source).digest("hex"));
+  for (const variant of ["thumbnail", "preview", "lightbox"]) {
+    const metadata = await sharp(await readMedia(getMediaRecord(id, variant)!)).metadata();
+    assert.equal(metadata.format, "webp");
+  }
+  const record = getMediaRecord(id, "lightbox")!;
+  assert.deepEqual((await readdir(path.join(mediaDirectory, record.storage_key))).sort(),
+    ["lightbox.webp", "preview.webp", "thumbnail.webp"]);
+}
 
 test("nested files wait for copy stability, become credited drafts and remove only the imported source", async () => {
   await mkdir(path.join(inbox, "旅行"), { recursive: true });
@@ -53,7 +68,7 @@ test("nested files wait for copy stability, become credited drafts and remove on
   assert.equal(photo.capturedAt, "2025-06-07");
   await assert.rejects(readFile(filename), { code: "ENOENT" });
   assert.ok((await lstat(path.dirname(filename))).isDirectory());
-  assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), image);
+  await assertStoredDisplays(photo.id, image);
   assert.equal(getMediaRecord(photo.id, "download"), undefined);
   for (const variant of ["thumbnail", "preview", "lightbox"]) assert.ok(getMediaRecord(photo.id, variant));
   assert.equal(getMediaRecord(photo.id, "grid"), undefined);
@@ -139,7 +154,7 @@ test("restart cleans up successful imports left before source deletion", async (
     await createFolderImporter({ now: clock, settleMs: 100 }).scan();
     await assert.rejects(readFile(filename), { code: "ENOENT" });
     assert.equal(getFolderImportStatus().recent.find((entry) => entry.file === path.basename(filename))?.status, status);
-    assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), image);
+    await assertStoredDisplays(photo.id, image);
   }
 });
 
@@ -173,10 +188,10 @@ test("a source replaced during media processing is retained and imported on a la
   await assert.rejects(readFile(filename), { code: "ENOENT" });
   const entry = getFolderImportStatus().recent.find((item) => item.file === path.basename(filename))!;
   assert.equal(entry.status, "imported");
-  assert.deepEqual(await readMedia(getMediaRecord(entry.photoId!, "original")!), replacement);
+  await assertStoredDisplays(entry.photoId!, replacement);
 });
 
-test("source deletion failures preserve the original, report an error and allow retry", async (t) => {
+test("source deletion failures preserve the source and stored displays, report an error and allow retry", async (t) => {
   const filename = path.join(inbox, "删除失败.jpg");
   await writeFile(filename, image);
   await importer.scan();
@@ -197,7 +212,7 @@ test("source deletion failures preserve the original, report an error and allow 
   assert.equal(failure.status, "error");
   assert.match(failure.error!, /照片已入库，但删除导入源文件失败/);
   assert.deepEqual(await readFile(filename), image);
-  assert.deepEqual(await readMedia(getMediaRecord(failure.photoId!, "original")!), image);
+  await assertStoredDisplays(failure.photoId!, image);
   // Same reset as the manual --retry command, after waiting for stability.
   db.prepare("UPDATE folder_import SET status='waiting',observed_at=? WHERE file_path=?").run(now - 101, filename);
   await importer.scan();

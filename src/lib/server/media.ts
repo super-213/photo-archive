@@ -10,9 +10,10 @@ import { getPhoto } from "./store";
 import { AppError, captureDate } from "./validation";
 import type { Category, Photo } from "../content";
 
-import { createCopyrightXmp, getCopyrightSettings, writeCopyrightDownload, type CopyrightSettings } from "./copyright";
+import { createCopyrightXmp, getCopyrightSettings, writePreviewCopyright, type CopyrightSettings } from "./copyright";
 import { maxUploadBytes, maxInputPixels, previewEncodingVersion, previewVariants } from "../media-settings";
 import { queuePreviewCachePurge } from "./cdn-cache";
+import { originalDownloadsEnabled } from "./media-policy";
 export { maxUploadBytes } from "../media-settings";
 const formats: Record<string, string> = {
   jpeg: "jpg",
@@ -48,8 +49,13 @@ export async function importPhoto(buffer: Buffer, filename: string, options: Imp
   }
 }
 
-async function generatePreviews(source: string, directory: string, copyright: CopyrightSettings | undefined) {
-  for (const variant of previewVariants) {
+async function generatePreviews(
+  source: string,
+  directory: string,
+  copyright: CopyrightSettings | undefined,
+  variants: readonly (typeof previewVariants)[number][] = previewVariants,
+) {
+  for (const variant of variants) {
     const image = sharp(source, { limitInputPixels: maxInputPixels })
       .rotate()
       .resize({ width: variant.width, height: variant.width, fit: "inside", withoutEnlargement: true })
@@ -71,14 +77,15 @@ export async function importPhotoFile(source: string, filename: string, options:
   const destination = path.join(mediaDirectory, storageKey);
   let committed = false;
   try {
-    let originalFile = path.join(staging, "source");
+    const originalFile = path.join(staging, "source");
     await copyFile(source, originalFile);
     const hash = createHash("sha256");
     for await (const chunk of createReadStream(originalFile)) hash.update(chunk);
     const digest = hash.digest("hex");
     const existing = db.prepare("SELECT id FROM photo WHERE digest=?").get(digest) as { id: string } | undefined;
     if (existing) {
-      await rebuildPhotoPreviews(existing.id);
+      await rebuildPhotoPreviews(existing.id, originalFile);
+      if (originalDownloadsEnabled()) await retainUploadedOriginal(existing.id, originalFile);
       return { photo: getPhoto(existing.id)!, duplicate: true };
     }
     let metadata: Metadata;
@@ -91,9 +98,6 @@ export async function importPhotoFile(source: string, filename: string, options:
       throw new AppError("请选择单帧 JPEG、PNG、WebP、AVIF 或 TIFF 照片");
     const format = metadata.format === "heif" && metadata.compression === "av1" ? "avif" : metadata.format;
     const mimeType = format === "jpeg" ? "image/jpeg" : `image/${format}`;
-    const originalName = `original.${formats[format]}`;
-    await rename(originalFile, path.join(staging, originalName));
-    originalFile = path.join(staging, originalName);
     const copyright = options.isSample ? undefined : getCopyrightSettings();
     const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
     await generatePreviews(originalFile, staging, copyright);
@@ -122,6 +126,10 @@ export async function importPhotoFile(source: string, filename: string, options:
     const capturedAt = parsedDate.success ? parsedDate.data : "";
     const rotated = [5, 6, 7, 8].includes(metadata.orientation || 1);
     const exposure = Number(exif?.ExposureTime);
+    const originalName = `original.${formats[format]}`;
+    const keepOriginal = originalDownloadsEnabled();
+    if (keepOriginal) await rename(originalFile, path.join(staging, originalName));
+    else await rm(originalFile);
     await rename(staging, destination);
     const result = db
       .transaction(() => {
@@ -170,12 +178,9 @@ export async function importPhotoFile(source: string, filename: string, options:
           isSample: options.isSample ? 1 : 0,
           uploadedAt: new Date().toISOString(),
         });
-        db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type) VALUES (?,?,?,?)").run(
-          id,
-          "original",
-          originalName,
-          mimeType,
-        );
+        if (keepOriginal)
+          db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type) VALUES (?,'original',?,?)")
+            .run(id, originalName, mimeType);
         for (const variant of previewVariants)
           db.prepare("INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version) VALUES (?,?,?,?,?)").run(
             id,
@@ -232,82 +237,155 @@ export function openMedia(record: NonNullable<ReturnType<typeof getMediaRecord>>
   return open(path.join(mediaDirectory, record.storage_key, record.filename), "r");
 }
 
-async function removeRetiredGrid(id: string, directory: string) {
-  const record = getMediaRecord(id, "grid");
-  if (!record) return false;
-  // Only remove the known derived file; uploaded originals and download copies are never touched.
-  if (record.filename === "grid.webp") await rm(path.join(directory, "grid.webp"), { force: true });
-  return getDatabase().prepare("DELETE FROM media_variant WHERE photo_id=? AND variant='grid'").run(id).changes > 0;
-}
-
-export async function rebuildPhotoPreviews(id: string) {
+async function retainUploadedOriginal(id: string, source: string) {
   const db = getDatabase();
-  const original = getMediaRecord(id, "original");
-  if (!original) throw new AppError("原图不存在", 404);
-  const copyright = original.is_sample ? undefined : getCopyrightSettings();
-  const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
-  const retiredDownload = await removeRetiredDownload(id);
-  const current = db.prepare(
-    "SELECT variant FROM media_variant WHERE photo_id=? AND encoding_version=? AND variant!='original'",
-  ).all(id, encodingVersion) as { variant: string }[];
-  const directory = path.join(mediaDirectory, original.storage_key);
-  if (previewVariants.every((variant) => current.some((row) => row.variant === variant.name))) {
-    const retired = await removeRetiredGrid(id, directory);
-    if (retired && original.visibility === "public") queuePreviewCachePurge(id);
-    return retired || retiredDownload;
-  }
-  const temporary = await mkdtemp(path.join(directory, ".previews-"));
+  const photo = db.prepare("SELECT storage_key,mime_type FROM photo WHERE id=?").get(id) as { storage_key: string; mime_type: string };
+  const extension = formats[photo.mime_type.slice("image/".length)];
+  if (!extension) throw new AppError("源照片格式无法识别");
+  const directory = path.join(mediaDirectory, photo.storage_key);
+  const filename = `original.${extension}`;
+  const temporary = path.join(directory, `.original-${randomUUID()}.tmp`);
   try {
-    await generatePreviews(path.join(directory, original.filename), temporary, copyright);
-    for (const variant of previewVariants)
-      await rename(path.join(temporary, `${variant.name}.webp`), path.join(directory, `${variant.name}.webp`));
-    db.transaction(() => {
-      const save = db.prepare(`INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version)
-        VALUES (?,?,?,?,?) ON CONFLICT(photo_id,variant) DO UPDATE SET
-        filename=excluded.filename,mime_type=excluded.mime_type,encoding_version=excluded.encoding_version`);
-      for (const variant of previewVariants)
-        save.run(id, variant.name, `${variant.name}.webp`, "image/webp", encodingVersion);
-    }).immediate();
-    await removeRetiredGrid(id, directory);
-    if (original.visibility === "public") queuePreviewCachePurge(id);
-    return true;
+    await copyFile(source, temporary);
+    await rename(temporary, path.join(directory, filename));
+    db.prepare(`INSERT INTO media_variant(photo_id,variant,filename,mime_type) VALUES (?,'original',?,?)
+      ON CONFLICT(photo_id,variant) DO UPDATE SET filename=excluded.filename,mime_type=excluded.mime_type`)
+      .run(id, filename, photo.mime_type);
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { force: true });
   }
 }
 
-async function removeRetiredDownload(id: string) {
-  const record = getMediaRecord(id, "download");
-  if (!record) return false;
+export async function openPhotoDownload(id: string) {
+  if (!originalDownloadsEnabled()) throw new AppError("照片下载已关闭", 404);
   const original = getMediaRecord(id, "original");
-  // Delete only the known derived filename, never the uploaded original.
-  if (original && record.filename === `download${path.extname(original.filename)}`)
-    await rm(path.join(mediaDirectory, record.storage_key, record.filename), { force: true });
-  return getDatabase().prepare("DELETE FROM media_variant WHERE photo_id=? AND variant='download'").run(id).changes > 0;
+  if (original) {
+    try { return { record: original, file: await openMedia(original) }; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  // Use actual image dimensions so legacy libraries and missing files also fall back correctly.
+  const candidates: { record: NonNullable<ReturnType<typeof getMediaRecord>>; pixels: number }[] = [];
+  for (const variant of ["lightbox", "grid", "preview", "thumbnail"]) {
+    const record = getMediaRecord(id, variant);
+    if (!record) continue;
+    try {
+      // Read current bytes rather than a path that libvips may have cached before a rebuild.
+      const metadata = await sharp(await readMedia(record)).metadata();
+      if (metadata.width && metadata.height) candidates.push({ record, pixels: metadata.width * metadata.height });
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === "EACCES") throw error; }
+  }
+  candidates.sort((a, b) => b.pixels - a.pixels);
+  for (const { record } of candidates) {
+    try { return { record, file: await openMedia(record) }; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  }
+  throw new AppError("没有可下载的照片文件", 404);
 }
 
-export async function openCopyrightDownload(id: string) {
+// Read RIFF chunk boundaries rather than searching compressed image or XMP bytes.
+function isLossyWebp(bytes: Buffer) {
+  if (bytes.toString("ascii", 0, 4) !== "RIFF" || bytes.toString("ascii", 8, 12) !== "WEBP") return false;
+  for (let offset = 12; offset + 8 <= bytes.length;) {
+    const size = bytes.readUInt32LE(offset + 4);
+    if (offset + 8 + size > bytes.length) return false;
+    if (bytes.toString("ascii", offset, offset + 4) === "VP8 ") return true;
+    offset += 8 + size + (size % 2);
+  }
+  return false;
+}
+
+async function removeRetiredMedia(id: string, directory: string) {
+  const filenames = {
+    grid: /^grid\.webp$/,
+    download: /^download\.(?:jpe?g|png|webp|avif|heif|heic|tiff?)$/,
+    original: /^original\.(?:jpe?g|png|webp|avif|heif|heic|tiff?)$/,
+  };
+  let changed = false;
+  for (const [variant, pattern] of Object.entries(filenames)) {
+    if (variant === "original" && originalDownloadsEnabled()) continue;
+    const record = getMediaRecord(id, variant);
+    if (!record) continue;
+    if (!pattern.test(record.filename)) throw new AppError("历史媒体文件名异常，已保留文件，请检查媒体库");
+    await rm(path.join(directory, record.filename), { force: true });
+    getDatabase().prepare("DELETE FROM media_variant WHERE photo_id=? AND variant=?").run(id, variant);
+    changed = true;
+  }
+  return changed;
+}
+
+export async function rebuildPhotoPreviews(id: string, uploadedSource?: string) {
+  const db = getDatabase();
+  const photo = db.prepare("SELECT storage_key,is_sample,visibility,width,height FROM photo WHERE id=?").get(id) as {
+    storage_key: string; is_sample: number; visibility: Photo["visibility"]; width: number; height: number;
+  } | undefined;
+  if (!photo) throw new AppError("照片不存在", 404);
+  const copyright = photo.is_sample ? undefined : getCopyrightSettings();
+  const encodingVersion = copyright?.previewVersion ?? previewEncodingVersion;
+  const directory = path.join(mediaDirectory, photo.storage_key);
   const original = getMediaRecord(id, "original");
-  const copyright = getCopyrightSettings();
-  if (!original) throw new AppError("原图不存在", 404);
-  if (original.is_sample || !copyright) {
-    const file = await openMedia(original);
-    return { file, dispose: () => file.close() };
+  const states = await Promise.all(previewVariants.map(async (variant) => {
+    const record = getMediaRecord(id, variant.name);
+    let valid = false;
+    let lossy = false;
+    if (record) {
+      try {
+        const bytes = await readMedia(record);
+        const metadata = await sharp(bytes, { limitInputPixels: maxInputPixels }).metadata();
+        const scale = Math.min(1, variant.width / Math.max(photo.width, photo.height));
+        valid = metadata.format === "webp" && (metadata.pages || 1) === 1 &&
+          Math.abs((metadata.width || 0) - Math.round(photo.width * scale)) <= 1 &&
+          Math.abs((metadata.height || 0) - Math.round(photo.height * scale)) <= 1;
+        lossy = isLossyWebp(bytes);
+        // A readable header alone is insufficient before deleting a legacy original.
+        if (valid && original) await sharp(bytes, { limitInputPixels: maxInputPixels }).stats();
+      } catch {
+        // Missing or invalid displays must be regenerated before retiring sources.
+        valid = false;
+        lossy = false;
+      }
+    }
+    return { variant, record, valid, lossy };
+  }));
+  const pending = states.filter(({ variant, record, valid, lossy }) =>
+    !valid || !lossy || record?.encoding_version !== encodingVersion || record.filename !== `${variant.name}.webp`);
+  if (pending.length) {
+    const originalPath = original && path.join(directory, original.filename);
+    const source = uploadedSource || (originalPath && await stat(originalPath).then((info) => info.isFile() ? originalPath : undefined).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    }));
+    const lightbox = states.find(({ variant }) => variant.name === "lightbox")!;
+    if (!source && (!lightbox.valid || !lightbox.record))
+      throw new AppError("缺少可用的大图，请重新导入源照片以修复展示图", 422);
+    const temporary = await mkdtemp(path.join(directory, ".previews-"));
+    try {
+      if (source) {
+        await generatePreviews(source, temporary, copyright, pending.map(({ variant }) => variant));
+      } else {
+        for (const { variant, record, valid, lossy } of pending) {
+          if (valid && lossy && record) {
+            await writePreviewCopyright(path.join(directory, record.filename), path.join(temporary, `${variant.name}.webp`), copyright);
+          } else {
+            await generatePreviews(path.join(directory, lightbox.record!.filename), temporary, copyright, [variant]);
+          }
+        }
+      }
+      // Generate every needed file before replacing displays or removing a legacy original.
+      for (const { variant } of pending)
+        await rename(path.join(temporary, `${variant.name}.webp`), path.join(directory, `${variant.name}.webp`));
+      db.transaction(() => {
+        const save = db.prepare(`INSERT INTO media_variant(photo_id,variant,filename,mime_type,encoding_version)
+          VALUES (?,?,?,?,?) ON CONFLICT(photo_id,variant) DO UPDATE SET
+          filename=excluded.filename,mime_type=excluded.mime_type,encoding_version=excluded.encoding_version`);
+        for (const { variant } of pending)
+          save.run(id, variant.name, `${variant.name}.webp`, "image/webp", encodingVersion);
+      }).immediate();
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
   }
-  const directory = path.join(mediaDirectory, original.storage_key);
-  const temporary = await mkdtemp(path.join(directory, ".copyright-"));
-  const filename = `download${path.extname(original.filename)}`;
-  try {
-    await writeCopyrightDownload(path.join(directory, original.filename), path.join(temporary, filename), original.mime_type, copyright);
-    const file = await open(path.join(temporary, filename), "r");
-    let disposal: Promise<void> | undefined;
-    const dispose = () => disposal ??= (async () => {
-      try { await file.close(); }
-      finally { await rm(temporary, { recursive: true, force: true }); }
-    })();
-    return { file, dispose };
-  } catch (error) {
-    await rm(temporary, { recursive: true, force: true });
-    throw error;
-  }
+  const retired = await removeRetiredMedia(id, directory);
+  const changed = pending.length > 0 || retired;
+  if (changed && photo.visibility === "public") queuePreviewCachePurge(id);
+  return changed;
 }

@@ -17,6 +17,7 @@ import { AppError, photoPatchInput, projectInput } from "./validation";
 import type { z } from "zod";
 import { queuePreviewCachePurge } from "./cdn-cache";
 import { layoutImageSizes } from "../photo-sources";
+import { originalDownloadsEnabled } from "./media-policy";
 
 type PhotoRow = {
   id: string;
@@ -95,6 +96,7 @@ function serializePhotoSource(row: Pick<PhotoRow, "id" | "width" | "height" | "h
 function serializePhoto(row: PhotoRow): Photo {
   return {
     ...serializePhotoSource(row),
+    ...(originalDownloadsEnabled() ? { downloadSrc: `/media/${row.id}/download` } : {}),
     id: row.id,
     title: row.title,
     alt: row.alt,

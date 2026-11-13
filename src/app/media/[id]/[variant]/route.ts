@@ -1,7 +1,10 @@
 import { previewVariants, publicPreviewCacheSeconds } from "@/lib/media-settings";
 import { Readable } from "node:stream";
+import path from "node:path";
 import { getAdministrator } from "@/lib/server/auth";
-import { getMediaRecord, openMedia } from "@/lib/server/media";
+import { getMediaRecord, openMedia, openPhotoDownload } from "@/lib/server/media";
+import { originalDownloadsEnabled } from "@/lib/server/media-policy";
+import { getPhoto } from "@/lib/server/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,31 +17,40 @@ const privateHeaders = {
   "X-Content-Type-Options": "nosniff",
 };
 
+function downloadDisposition(title: string, filename: string) {
+  const name = (title || "照片").replace(/[\\/\u0000-\u001f\u007f]/g, "_") + path.extname(filename);
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (character) => `%${character.charCodeAt(0).toString(16)}`);
+  return `attachment; filename="${filename}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function GET(request: Request, context: MediaContext) {
   const { id, variant: requestedVariant } = await context.params;
   const webp = requestedVariant.endsWith(".webp");
   const name = webp ? requestedVariant.slice(0, -5) : requestedVariant;
   const legacyGrid = name === "grid";
   const variant = legacyGrid ? "preview" : name;
-  // Serve display variants only. Original/download requests are disabled for everyone.
-  if (!previewVariants.some((item) => item.name === variant))
+  const download = requestedVariant === "original" || requestedVariant === "download";
+  if (download ? !originalDownloadsEnabled() : !previewVariants.some((item) => item.name === variant))
     return new Response(null, { status: 404, headers: privateHeaders });
-  const record = getMediaRecord(id, variant);
-  if (!record) return new Response(null, { status: 404, headers: privateHeaders });
-  const restricted = record.visibility !== "public";
+  const record = download ? undefined : getMediaRecord(id, variant);
+  const photo = download ? getPhoto(id) : record;
+  if (!photo) return new Response(null, { status: 404, headers: privateHeaders });
+  const restricted = photo.visibility !== "public";
   const administrator = restricted && await getAdministrator(request.headers);
   if (restricted && !administrator)
     return new Response(null, { status: 404, headers: privateHeaders });
 
   let file: Awaited<ReturnType<typeof openMedia>> | undefined;
   try {
-    file = await openMedia(record);
+    const attachment = download ? await openPhotoDownload(id) : undefined;
+    const selected = attachment?.record || record!;
+    file = attachment?.file || await openMedia(selected);
     const stat = await file.stat();
     // Recheck after asynchronous file access, before honoring any cache validator.
-    const current = getMediaRecord(id, variant);
-    if (!current || (current.visibility !== "public" && !administrator))
+    const current = download ? getPhoto(id) : getMediaRecord(id, variant);
+    if (!current || (current.visibility !== "public" && !administrator) || (download && !originalDownloadsEnabled()))
       return new Response(null, { status: 404, headers: privateHeaders });
-    const cacheable = current.visibility === "public";
+    const cacheable = !download && current.visibility === "public";
     // Only canonical, public display URLs may be shared by the CDN. Downloads never qualify.
     const cdnCacheable = cacheable && webp && !legacyGrid && !new URL(request.url).search;
     const etag = `"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
@@ -50,8 +62,10 @@ export async function GET(request: Request, context: MediaContext) {
       } : privateHeaders),
       ...(cacheable ? { ...(!cdnCacheable ? { "Cache-Control": "private, no-cache" } : {}), ETag: etag } : {}),
       "X-Content-Type-Options": "nosniff",
-      "Content-Type": record.mime_type,
-      "Content-Disposition": `inline; filename="${record.filename}"`,
+      "Content-Type": selected.mime_type,
+      "Content-Disposition": download
+        ? downloadDisposition("title" in current ? current.title : "", selected.filename)
+        : `inline; filename="${selected.filename}"`,
     };
     const validators = request.headers.get("if-none-match")?.split(",").map((value) => value.trim().replace(/^W\//, ""));
     if (cacheable && validators?.some((value) => value === "*" || value === etag))

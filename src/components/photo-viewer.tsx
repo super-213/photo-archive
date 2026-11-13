@@ -165,6 +165,7 @@ export function PhotoViewer({
           </p>
         </div>
         <div className="viewer-actions">
+          {photo.downloadSrc && <a className="info-button" href={photo.downloadSrc} download>下载照片 ↓</a>}
           <button
             type="button"
             className="info-button"

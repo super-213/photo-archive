@@ -7,6 +7,7 @@ import sharp from "sharp";
 
 const directory = await mkdtemp(path.join(os.tmpdir(), "photo-cdn-test-"));
 process.env.PHOTO_ARCHIVE_DATA_DIR = directory;
+process.env.PHOTO_ARCHIVE_ORIGINAL_DOWNLOAD = "false";
 process.env.BETTER_AUTH_URL = "https://photos.example.test";
 delete process.env.PHOTO_ARCHIVE_CLOUDFLARE_API_TOKEN;
 delete process.env.PHOTO_ARCHIVE_CLOUDFLARE_ZONE_ID;

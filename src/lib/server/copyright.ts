@@ -53,19 +53,15 @@ export function createCopyrightXmp(settings: CopyrightSettings) {
 </x:xmpmeta>`;
 }
 
-export async function writeCopyrightDownload(
+export async function writePreviewCopyright(
   source: string,
   destination: string,
-  mimeType: string,
-  settings: CopyrightSettings,
+  settings: CopyrightSettings | undefined,
 ) {
-  const tags: string[] = [];
-  if (settings.author) tags.push(`-XMP-dc:Creator=${settings.author}`);
-  if (settings.notice) tags.push(`-XMP-dc:Rights=${settings.notice}`);
-  if (mimeType === "image/jpeg" || mimeType === "image/tiff") {
-    if (settings.author) tags.push(`-EXIF:Artist=${settings.author}`);
-    if (settings.notice) tags.push(`-EXIF:Copyright=${settings.notice}`);
-  }
+  // ExifTool rewrites metadata without recompressing the WebP image or changing ICC.
+  const tags = ["-XMP:All=", "-EXIF:All="];
+  if (settings?.author) tags.push(`-XMP-dc:Creator=${settings.author}`);
+  if (settings?.notice) tags.push(`-XMP-dc:Rights=${settings.notice}`);
   await run(exiftoolPath, [
     "-charset", "filename=UTF8", ...tags, "-o", destination, source,
   ], { timeout: 120_000, maxBuffer: 1024 * 1024 });

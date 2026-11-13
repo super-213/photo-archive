@@ -340,6 +340,7 @@ function PhotoEditor({
     >
       <div className="editor-title">
         <h2>照片信息</h2>
+        {photo.downloadSrc && <a className="admin-small-button" href={photo.downloadSrc} download>下载照片 ↓</a>}
         <button className="admin-small-button" onClick={onClose}>
           关闭 ×
         </button>

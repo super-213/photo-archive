@@ -28,6 +28,7 @@ export type Photo = {
   lightboxSrc: string;
   thumbnailSrc: string;
   previewSrc?: string;
+  downloadSrc?: string;
   title: string;
   alt: string;
   description: string;

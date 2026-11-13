@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
+    "pwa:icons": "node --import tsx scripts/generate-pwa-icons.ts",
     "db:init": "node --conditions=react-server --import tsx scripts/init.ts",
     "media:rebuild": "node --conditions=react-server --import tsx scripts/rebuild-media.ts",
     "photos:import": "node --conditions=react-server --import tsx scripts/import-folder.ts",

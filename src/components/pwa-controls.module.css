@@ -1,0 +1,11 @@
+.controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 11px; letter-spacing: .03em; }
+.action, .help summary { padding: 10px 0; min-height: 44px; display: inline-flex; align-items: center; color: inherit; font: inherit; cursor: pointer; text-underline-offset: 5px; }
+.action:hover, .help summary:hover { text-decoration: underline; }
+.action:disabled { opacity: .5; cursor: wait; }
+.help { max-width: 100%; }
+.help summary { list-style: none; }
+.help summary::-webkit-details-marker { display: none; }
+.help p { width: min(300px, calc(100vw - 44px)); margin: 6px 0 10px; padding: 18px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text); line-height: 1.9; }
+.update { display: flex; align-items: center; gap: 12px; }
+.update .action { text-decoration: underline; }
+.message { width: 100%; max-width: 300px; line-height: 1.8; }

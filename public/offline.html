@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#f7f6f2" />
+    <title>暂时离线 | 片隅</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #f7f6f2; color: #202020; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+      main { max-width: 760px; margin: 0 auto; padding: 100px 28px; }
+      .brand { display: flex; align-items: center; gap: 8px; font: 26px Georgia, "Songti SC", serif; }
+      .brand img { width: 52px; height: 52px; }
+      h1 { margin: 56px 0 20px; font-size: clamp(28px, 6vw, 42px); line-height: 1.5; font-weight: 400; }
+      p { color: #66645f; font-size: 14px; line-height: 1.9; }
+      .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; margin-top: 32px; }
+      button, a { color: inherit; font: inherit; font-size: 13px; }
+      button { background: transparent; border: 1px solid #66645f; min-height: 44px; padding: 12px 20px; cursor: pointer; }
+      a { padding: 12px 0; text-underline-offset: 5px; }
+      :focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><img src="/logo.svg" width="52" height="52" alt="" /><span>片隅.</span></div>
+      <h1>等网络回来，再继续看见。</h1>
+      <p>暂时无法连接片隅。请检查网络连接，然后重新尝试。</p>
+      <p>照片与作品信息需要联网查看。</p>
+      <div class="actions"><button type="button" id="retry">重新尝试</button><a href="/">返回所见 →</a></div>
+      <p id="connection" role="status" aria-live="polite"></p>
+    </main>
+    <script>
+      document.getElementById("retry").addEventListener("click", function () { location.reload(); });
+      window.addEventListener("online", function () {
+        document.getElementById("connection").textContent = "网络已恢复，可以重新尝试。";
+      });
+    </script>
+  </body>
+</html>

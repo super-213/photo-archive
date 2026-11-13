@@ -2,7 +2,7 @@
 
 品牌标识为「片隅.」，英文副标为「A PERSONAL PHOTOGRAPHY COLLECTION」。「所见」展示精选摄影系列，「所藏」保存全部公开摄影档案。
 
-Logo 原始素材位于 `docs/pianyu-logo-assets/`。运行时 SVG 和 PNG 放在 `public/`，前台、后台、错误页与分享图统一使用该标识；深色大图浏览器使用反白版。`src/app/favicon.ico`、`icon.svg` 和 `apple-icon.png` 由 Next.js 自动生成浏览器及手机主屏幕图标标签。更换素材时同步更新这些部署副本，并重新构建。
+Logo 原始素材位于 `docs/pianyu-logo-assets/`。运行时 SVG 和 PNG 放在 `public/`，前台、后台、错误页与分享图统一使用该标识；深色大图浏览器使用反白版。`src/app/favicon.ico`、`icon.svg` 和 `apple-icon.png` 由 Next.js 自动生成浏览器及手机主屏幕图标标签。更换素材时同步更新这些部署副本，执行 `npm run pwa:icons` 更新安装图标，并重新构建。
 
 本地运行的个人摄影作品集。使用 Next.js App Router、TypeScript、SQLite、Better Auth 和 Sharp。包含公开作品集和管理员后台，当前保留 18 张 Unsplash 样例照片与 3 个样例系列。
 
@@ -234,6 +234,20 @@ Token 仅需对应 Zone 的 `Cache Purge` 权限；Zone 应覆盖 `BETTER_AUTH_U
 - 样例年份为演示编排年份。新上传照片可从 EXIF 提取日期和年份，地点由管理员填写。
 - Archive 筛选同步 `category` 查询参数，支持刷新和浏览器前进后退。
 - 图片按尺寸选择本地派生图，大图查看支持方向键、Esc、触屏滑动和信息面板。
+
+## PWA 安装与离线提示
+
+站点提供 `/manifest.webmanifest`，安装名称为“片隅”，默认从首页启动，以独立窗口打开。192 / 512 像素安装图标使用暖白不透明背景，另有保留安全裁切区的 Android maskable 图标；Apple 主屏幕图标沿用相同背景。更新 Logo 后运行 `npm run pwa:icons` 重新生成这些图标。
+
+正式使用需要 HTTPS；`localhost` 和 `127.0.0.1` 可用于本机测试。普通局域网 HTTP 地址不能注册 Service Worker，需通过正式 HTTPS 域名安装。页面底部提供“安装片隅”入口：支持原生安装提示的浏览器可直接打开安装窗口，其他浏览器显示菜单操作说明。iPhone / iPad 可在 Safari 分享菜单中选择“添加到主屏幕”，macOS Safari 可使用“添加到程序坞”；具体入口由浏览器提供。独立窗口内隐藏安装入口，安装和离线支持范围取决于浏览器。
+
+生产环境首次访问前台页面后，自动注册 `/sw.js` 并预存自包含的 `/offline.html`、Logo 和安装图标。首次安装需联网并等待资源准备完成；断网后启动应用或完整打开首页、所藏、系列详情时，显示离线提示与重试入口。离线提示页返回 503 和 `noindex`。该版本不提供离线作品浏览：Service Worker 不保存页面 HTML、RSC 数据、照片、下载、API 或后台内容；这些资源继续使用已有的网络和 HTTP 缓存规则。客户端页面切换的数据请求也不写入 PWA 缓存。
+
+网络正常时始终优先请求最新内容，服务器的 401 / 404 / 500 响应保持原样。静态品牌资源联网时更新，离线时可使用缓存。后台和媒体请求不由 Service Worker 接管，登录及私有内容权限校验继续由源站处理；PWA 不扩展原有照片 HTTP 缓存的有效期。
+
+Service Worker 文件禁止浏览器和 Cloudflare 缓存，注册使用 `updateViaCache: none`。新版本下载完成后，在前台页脚提示“新版本已准备好”；点击“更新应用”才激活并刷新当前前台页面，不会主动刷新后台编辑页。更新离线页面或预存资源时，同步递增 `public/sw.js` 中的缓存版本；新 Worker 激活后清理旧的 `pianyu-pwa-` 缓存，保留其他应用的缓存。重新构建并执行 `./restart.sh` 后，可刷新前台页面检查更新。开发模式不注册 Worker，开发和生产建议使用不同端口；已有生产 Worker 不会因为切到开发模式而自动卸载。
+
+验收时可在浏览器开发者工具中确认 Manifest 与 Service Worker 已就绪，再安装应用。离线检查应在 Worker 控制页面后进行，通过完整刷新或重新启动应用确认离线提示。另检查后台、私有照片和下载没有进入 Cache Storage；模拟故障时服务器返回的错误状态不应被离线页替换。检查新版本时保持旧应用打开，发布递增缓存版本的 Worker，再确认更新按钮和手动刷新流程。
 
 ## 验证
 

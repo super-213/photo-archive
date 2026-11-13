@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "@fontsource/inter/latin-400.css";
 import "@fontsource/inter/latin-500.css";
 import "@fontsource/instrument-serif/latin-400.css";
@@ -13,6 +13,8 @@ import { publicSiteUrl, serializeJsonLd } from "@/lib/seo";
 import { WebVitals } from "@/components/web-vitals";
 
 export const metadata: Metadata = {
+  applicationName: site.name,
+  appleWebApp: { capable: true, title: site.name, statusBarStyle: "default" },
   metadataBase: publicSiteUrl() || new URL("http://localhost:3000"),
   title: {
     default: `${site.name} — 摄影作品集`,
@@ -21,6 +23,8 @@ export const metadata: Metadata = {
   description: site.description,
   robots: publicSiteUrl() ? undefined : { index: false, follow: false },
 };
+
+export const viewport: Viewport = { themeColor: "#f7f6f2", colorScheme: "light" };
 
 export default function RootLayout({
   children,

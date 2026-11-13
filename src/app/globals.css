@@ -153,6 +153,12 @@ em[lang="zh-CN"] {
   align-items: center;
   gap: 12px;
 }
+.footer-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}
 .site-header nav {
   display: flex;
   align-items: center;

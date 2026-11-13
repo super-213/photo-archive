@@ -72,12 +72,14 @@ test("only public canonical WebP previews advertise shared caching; legacy and q
 test("originals, downloads, invalid variants and revoked previews never advertise shared caching", async () => {
   for (const variant of ["original", "original.webp", "download", "download.webp", "grid.webp.webp", "missing.webp"]) {
     const response = await get(variant);
-    assert.equal(response.status, variant === "original" ? 200 : 404);
+    assert.equal(response.status, 404);
     assert.match(response.headers.get("cache-control")!, /no-store/);
     assert.equal(response.headers.get("cloudflare-cdn-cache-control"), "no-store");
     await response.arrayBuffer();
   }
-  updatePhoto(photo.id, photoInput.parse({ ...getPhoto(photo.id), visibility: "private" }));
+  updatePhoto(photo.id, { version: getPhoto(photo.id)!.version, title: "只修改信息" });
+  assert.equal(rows().length, 0, "metadata-only edits do not purge image caches");
+  updatePhoto(photo.id, { version: getPhoto(photo.id)!.version, visibility: "private" });
   await flushPreviewCachePurges();
   for (const { name } of previewVariants) {
     const response = await get(`${name}.webp`, "", { "if-none-match": "*" });

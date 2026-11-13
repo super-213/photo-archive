@@ -1,7 +1,7 @@
 import { previewVariants, publicPreviewCacheSeconds } from "@/lib/media-settings";
 import { Readable } from "node:stream";
 import { getAdministrator } from "@/lib/server/auth";
-import { openCopyrightDownload, getMediaRecord, openMedia } from "@/lib/server/media";
+import { getMediaRecord, openMedia } from "@/lib/server/media";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +20,8 @@ export async function GET(request: Request, context: MediaContext) {
   const name = webp ? requestedVariant.slice(0, -5) : requestedVariant;
   const legacyGrid = name === "grid";
   const variant = legacyGrid ? "preview" : name;
-  if ((webp && variant === "original") ||
-      (variant !== "original" && !previewVariants.some((item) => item.name === variant)))
+  // Serve display variants only. Original/download requests are disabled for everyone.
+  if (!previewVariants.some((item) => item.name === variant))
     return new Response(null, { status: 404, headers: privateHeaders });
   const record = getMediaRecord(id, variant);
   if (!record) return new Response(null, { status: 404, headers: privateHeaders });
@@ -31,21 +31,14 @@ export async function GET(request: Request, context: MediaContext) {
     return new Response(null, { status: 404, headers: privateHeaders });
 
   let file: Awaited<ReturnType<typeof openMedia>> | undefined;
-  let dispose: (() => Promise<void>) | undefined;
   try {
-    if (variant === "original") {
-      ({ file, dispose } = await openCopyrightDownload(id));
-    } else {
-      file = await openMedia(record);
-      const handle = file;
-      dispose = () => handle.close();
-    }
+    file = await openMedia(record);
     const stat = await file.stat();
     // Recheck after asynchronous file access, before honoring any cache validator.
     const current = getMediaRecord(id, variant);
     if (!current || (current.visibility !== "public" && !administrator))
       return new Response(null, { status: 404, headers: privateHeaders });
-    const cacheable = variant !== "original" && current.visibility === "public";
+    const cacheable = current.visibility === "public";
     // Only canonical, public display URLs may be shared by the CDN. Downloads never qualify.
     const cdnCacheable = cacheable && webp && !legacyGrid && !new URL(request.url).search;
     const etag = `"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
@@ -58,7 +51,7 @@ export async function GET(request: Request, context: MediaContext) {
       ...(cacheable ? { ...(!cdnCacheable ? { "Cache-Control": "private, no-cache" } : {}), ETag: etag } : {}),
       "X-Content-Type-Options": "nosniff",
       "Content-Type": record.mime_type,
-      "Content-Disposition": `${variant === "original" ? "attachment" : "inline"}; filename="${variant === "original" ? `original${record.filename.slice(record.filename.lastIndexOf("."))}` : record.filename}"`,
+      "Content-Disposition": `inline; filename="${record.filename}"`,
     };
     const validators = request.headers.get("if-none-match")?.split(",").map((value) => value.trim().replace(/^W\//, ""));
     if (cacheable && validators?.some((value) => value === "*" || value === etag))
@@ -92,23 +85,21 @@ export async function GET(request: Request, context: MediaContext) {
     }
     if (request.method === "HEAD") return new Response(null, { headers: responseHeaders });
     const handle = file;
-    const release = dispose;
     const source = handle.createReadStream({ start, end });
     const abort = () => source.destroy();
     request.signal.addEventListener("abort", abort, { once: true });
     source.once("close", () => {
       request.signal.removeEventListener("abort", abort);
-      void release().catch((error) => console.error("Media cleanup failed", error));
+      void handle.close().catch((error) => console.error("Media file close failed", error));
     });
     if (request.signal.aborted) source.destroy();
     const stream = Readable.toWeb(source) as ReadableStream<Uint8Array>;
     file = undefined; // The stream owns and closes the file, including on cancellation.
-    dispose = undefined;
     return new Response(stream, { status, headers: responseHeaders });
   } catch {
     return new Response(null, { status: 404, headers: privateHeaders });
   } finally {
-    await dispose?.();
+    await file?.close();
   }
 }
 

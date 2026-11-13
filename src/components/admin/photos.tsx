@@ -3,14 +3,16 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { categories, categoryLabels, type Photo } from "@/lib/content";
 import { maxUploadBytes } from "@/lib/media-settings";
-import { adminRequest } from "./api";
+import { getPhotoChanges } from "@/lib/photo-edit";
+import { adminRequest, adminUpload } from "./api";
 import type { getFolderImportStatus } from "@/lib/server/folder-import";
 
 const visibilityLabels = { draft: "草稿", public: "公开", private: "私有" };
 type UploadItem = {
   id: number;
   file: File;
-  state: "waiting" | "uploading" | "done" | "error";
+  state: "waiting" | "uploading" | "processing" | "done" | "error";
+  progress: number | null;
   message: string;
 };
 
@@ -45,7 +47,7 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
       setQueue((current) =>
         current.map((entry) =>
           entry.id === item.id
-            ? { ...entry, state: "uploading", message: "正在上传与生成展示图…" }
+            ? { ...entry, state: "uploading", progress: 0, message: "正在上传 · 0%" }
             : entry,
         ),
       );
@@ -54,10 +56,25 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
           throw new Error("单张照片最大 256 MiB");
         const data = new FormData();
         data.set("file", item.file);
-        const result = await adminRequest<{ photo: Photo; duplicate: boolean }>(
+        const result = await adminUpload<{ photo: Photo; duplicate: boolean }>(
           "/api/admin/photos",
-          "POST",
           data,
+          (progress) => {
+            setQueue((current) =>
+              current.map((entry) =>
+                entry.id === item.id
+                  ? {
+                      ...entry,
+                      progress,
+                      state: progress === 100 ? "processing" : "uploading",
+                      message: progress === 100
+                        ? "已传输 100% · 正在生成展示图…"
+                        : progress === null ? "正在上传…" : `正在上传 · ${progress}%`,
+                    }
+                  : entry,
+              ),
+            );
+          },
         );
         setPhotos((current) =>
           current.some((photo) => photo.id === result.photo.id)
@@ -70,6 +87,7 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
               ? {
                   ...entry,
                   state: "done",
+                  progress: 100,
                   message: result.duplicate
                     ? "已存在，沿用原照片及编辑信息"
                     : "上传完成 · 草稿",
@@ -119,6 +137,7 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
                   id: nextId.current++,
                   file,
                   state: "waiting" as const,
+                  progress: 0,
                   message: "等待上传",
                 }),
               );
@@ -174,11 +193,15 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
         <section
           className="upload-queue"
           aria-label="上传进度"
-          aria-live="polite"
         >
+          <p className="upload-summary" role="status">
+            已完成 {queue.filter((item) => item.state === "done").length} / {queue.length} 张
+            {queue.some((item) => item.state === "error") &&
+              ` · 失败 ${queue.filter((item) => item.state === "error").length} 张`}
+          </p>
           {queue.map((item) => (
-            <div key={item.id}>
-              <span>{item.file.name}</span>
+            <div key={item.id} className="upload-item" data-state={item.state}>
+              <span className="upload-filename">{item.file.name}</span>
               <span
                 className={
                   item.state === "error" ? "admin-error" : "admin-muted"
@@ -195,6 +218,13 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
                   重试
                 </button>
               )}
+              <progress
+                className="upload-progress"
+                max={100}
+                value={item.progress ?? undefined}
+                aria-label={`${item.file.name} 上传进度`}
+                aria-valuetext={item.message}
+              />
             </div>
           ))}
           {!uploading && (
@@ -296,6 +326,7 @@ function PhotoEditor({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const editor = useRef<HTMLElement>(null);
   useEffect(() => {
     if (window.matchMedia("(max-width: 767px)").matches)
@@ -323,21 +354,19 @@ function PhotoEditor({
         className="admin-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          setBusy(true);
           setError("");
-          const data = Object.fromEntries(new FormData(event.currentTarget));
+          setMessage("");
+          const changes = getPhotoChanges(photo, new FormData(event.currentTarget));
+          if (Object.keys(changes).length === 1) {
+            setMessage("照片信息没有变化，无需保存");
+            return;
+          }
+          setBusy(true);
           try {
             const result = await adminRequest<{
               photo: Photo;
               unpublished: number;
-            }>(`/api/admin/photos/${photo.id}`, "PUT", {
-              ...data,
-              version: photo.version,
-              tags: String(data.tags)
-                .split(/[,，]/)
-                .map((tag) => tag.trim())
-                .filter(Boolean),
-            });
+            }>(`/api/admin/photos/${photo.id}`, "PATCH", changes);
             onSave(result.photo, result.unpublished);
           } catch (error) {
             setError(error instanceof Error ? error.message : "保存失败");
@@ -453,6 +482,7 @@ function PhotoEditor({
             ))}
           </details>
         </fieldset>
+        {message && <p role="status" className="admin-muted">{message}</p>}
         {error && (
           <p role="alert" className="admin-error">
             {error}
@@ -462,9 +492,6 @@ function PhotoEditor({
           {busy ? "正在保存…" : "保存照片"}
         </button>
       </form>
-      <a className="text-link" href={`/media/${photo.id}/original`}>
-        下载原图 ↗
-      </a>
     </section>
   );
 }

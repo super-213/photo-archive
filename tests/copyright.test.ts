@@ -112,7 +112,7 @@ test("download copyright changes metadata and preserves JPEG compressed scan dat
   assert.equal((await readTags(reimported.photo.id, "download"))["XMP-dc:Rights"], copyrightNotice);
 });
 
-test("downloads are temporary, independent for concurrent requests and require visibility", async () => {
+test("temporary download helper isolates concurrent callers; HTTP original downloads remain disabled", async () => {
   const original = getMediaRecord(id, "original")!;
   const photoDirectory = path.join(mediaDirectory, original.storage_key);
   const context = { params: Promise.resolve({ id, variant: "original" }) };
@@ -127,9 +127,8 @@ test("downloads are temporary, independent for concurrent requests and require v
   const photo = getPhoto(id)!;
   updatePhoto(id, photoInput.parse({ ...photo, visibility: "public" }));
   const response = await mediaRoute.GET(new Request(`http://localhost/media/${id}/original`), context);
-  assert.equal(response.status, 200);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  assert.deepEqual(jpegImageData(bytes), jpegImageData(jpeg));
+  assert.equal(response.status, 404);
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
   await assertNoTemporaryDownloads(id);
   const internal = await mediaRoute.GET(new Request(`http://localhost/media/${id}/download`), {
     params: Promise.resolve({ id, variant: "download" }),
@@ -138,9 +137,9 @@ test("downloads are temporary, independent for concurrent requests and require v
   assert.equal(await rebuildPhotoPreviews(id), false);
 });
 
-test("HEAD, invalid ranges, cancellation and aborted downloads clean up temporary files", async () => {
-  const url = `http://localhost/media/${id}/original`;
-  const context = { params: Promise.resolve({ id, variant: "original" }) };
+test("display streams support HEAD, invalid ranges, cancellation and aborted requests", async () => {
+  const url = `http://localhost/media/${id}/preview.webp`;
+  const context = { params: Promise.resolve({ id, variant: "preview.webp" }) };
   const head = await mediaRoute.HEAD(new Request(url, { method: "HEAD" }), context);
   assert.equal(head.status, 200);
   assert.equal(head.body, null);
@@ -205,7 +204,7 @@ test("changing copyright configuration refreshes cached media automatically", as
   }
 });
 
-test("empty configuration uses uploaded originals and removes old display attribution on rebuild", async () => {
+test("empty configuration removes old display attribution without enabling original downloads", async () => {
   try {
     delete process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR;
     delete process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE;
@@ -217,8 +216,8 @@ test("empty configuration uses uploaded originals and removes old display attrib
     const downloaded = await mediaRoute.GET(new Request(`http://localhost/media/${id}/original`), {
       params: Promise.resolve({ id, variant: "original" }),
     });
-    assert.equal(downloaded.status, 200);
-    assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), jpeg);
+    assert.equal(downloaded.status, 404);
+    assert.equal((await downloaded.arrayBuffer()).byteLength, 0);
   } finally {
     process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = copyrightAuthor;
     process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = copyrightNotice;

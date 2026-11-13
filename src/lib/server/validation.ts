@@ -3,10 +3,9 @@ import { categories, coverLayouts, coverRatios, layoutTypes, layoutDefinitions }
 
 const shortText = z.string().trim().max(200);
 export const captureDate = z.union([z.literal(""), z.iso.date()]);
-export const photoInput = z.object({
-  version: z.number().int().positive(),
-  title: shortText.default(""),
-  alt: z.string().trim().max(500).default(""),
+const photoFields = {
+  title: shortText,
+  alt: z.string().trim().max(500),
   description: z.string().trim().max(3000),
   category: z.enum(categories),
   visibility: z.enum(["draft", "public", "private"]),
@@ -24,7 +23,16 @@ export const photoInput = z.object({
     .array(z.string().trim().min(1).max(40))
     .max(30)
     .transform((tags) => [...new Set(tags)]),
+};
+export const photoInput = z.object({
+  ...photoFields,
+  version: z.number().int().positive(),
+  title: photoFields.title.default(""),
+  alt: photoFields.alt.default(""),
 });
+export const photoPatchInput = z.object(photoFields).partial().extend({
+  version: z.number().int().positive(),
+}).strict();
 export const projectInput = z
   .object({
     version: z.number().int().nonnegative(),

@@ -1,11 +1,26 @@
 import { apiAction, json, readJson, requireAdministrator } from "@/lib/server/http";
 import { updatePhoto } from "@/lib/server/store";
-import { photoInput } from "@/lib/server/validation";
+import { photoInput, photoPatchInput } from "@/lib/server/validation";
 import { randomUUID } from "node:crypto";
 
 export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> },
+) {
+  return savePhoto(request, context, false);
+}
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  return savePhoto(request, context, true);
+}
+
+async function savePhoto(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+  partial: boolean,
 ) {
   const started = performance.now();
   const requestId = randomUUID();
@@ -18,7 +33,8 @@ export async function PUT(
   const response = await apiAction(async () => {
     await measure("auth", () => requireAdministrator(request));
     const { id } = await context.params;
-    const input = await measure("body", async () => photoInput.parse(await readJson(request)));
+    const input = await measure("body", async () =>
+      (partial ? photoPatchInput : photoInput).parse(await readJson(request)));
     return json(await measure("db", () => updatePhoto(id, input)));
   });
   durations.push({ name: "total", ms: performance.now() - started });

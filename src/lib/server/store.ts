@@ -12,7 +12,7 @@ import type {
   ProjectPhotoInput,
 } from "../content";
 import { getDatabase } from "./database";
-import { AppError, photoInput, projectInput } from "./validation";
+import { AppError, photoPatchInput, projectInput } from "./validation";
 import type { z } from "zod";
 import { queuePreviewCachePurge } from "./cdn-cache";
 
@@ -155,7 +155,14 @@ export function listPhotoPage(category: Category | "all", cursor?: string): Phot
   };
 }
 
-export function updatePhoto(id: string, input: z.infer<typeof photoInput>) {
+const photoFieldColumns = {
+  title: "title", alt: "alt", description: "description", category: "category", visibility: "visibility",
+  year: "year", location: "location", capturedAt: "captured_at", cameraMake: "camera_make",
+  cameraModel: "camera_model", lensModel: "lens_model", focalLength: "focal_length",
+  aperture: "aperture", shutterSpeed: "shutter_speed", iso: "iso",
+} as const;
+
+export function updatePhoto(id: string, input: z.infer<typeof photoPatchInput>) {
   const db = getDatabase();
   return db
     .transaction(() => {
@@ -163,29 +170,36 @@ export function updatePhoto(id: string, input: z.infer<typeof photoInput>) {
       if (!previous) throw new AppError("照片不存在", 404);
       if (previous.version !== input.version)
         throw new AppError("照片已被其他操作更新，请重新打开后编辑", 409);
-      const { tags, ...fields } = input;
+      const changedFields = (Object.keys(photoFieldColumns) as (keyof typeof photoFieldColumns)[])
+        .filter((key) => input[key] !== undefined && input[key] !== previous[key]);
+      const tagsChanged = input.tags !== undefined &&
+        (input.tags.length !== previous.tags.length || input.tags.some((tag) => !previous.tags.includes(tag)));
+      if (!changedFields.length && !tagsChanged) return { photo: previous, unpublished: 0 };
       db.prepare(
-        `UPDATE photo SET title=@title, alt=@alt, description=@description, category=@category, visibility=@visibility,
-      year=@year, location=@location, captured_at=@capturedAt, camera_make=@cameraMake, camera_model=@cameraModel,
-      lens_model=@lensModel, focal_length=@focalLength, aperture=@aperture, shutter_speed=@shutterSpeed, iso=@iso,
-      version=version+1 WHERE id=@id`,
-      ).run({ ...fields, id });
-      db.prepare("DELETE FROM photo_tag WHERE photo_id = ?").run(id);
-      for (const name of tags) {
-        db.prepare("INSERT OR IGNORE INTO tag(name) VALUES (?)").run(name);
-        db.prepare(
-          "INSERT INTO photo_tag(photo_id, tag_id) SELECT ?, id FROM tag WHERE name = ?",
-        ).run(id, name);
+        `UPDATE photo SET ${[
+          ...changedFields.map((key) => `${photoFieldColumns[key]}=@${key}`),
+          "version=version+1",
+        ].join(", ")} WHERE id=@id`,
+      ).run({ ...Object.fromEntries(changedFields.map((key) => [key, input[key]])), id });
+      if (tagsChanged) {
+        db.prepare("DELETE FROM photo_tag WHERE photo_id = ?").run(id);
+        for (const name of input.tags!) {
+          db.prepare("INSERT OR IGNORE INTO tag(name) VALUES (?)").run(name);
+          db.prepare(
+            "INSERT INTO photo_tag(photo_id, tag_id) SELECT ?, id FROM tag WHERE name = ?",
+          ).run(id, name);
+        }
       }
       let unpublished = 0;
-      if (input.visibility !== "public")
+      if (input.visibility !== undefined && input.visibility !== previous.visibility && input.visibility !== "public")
         unpublished = db
           .prepare(
             `UPDATE project SET status='draft', version=version+1 WHERE status='published'
       AND id IN (SELECT project_id FROM project_photo WHERE photo_id = ? UNION SELECT id FROM project WHERE cover_photo_id = ?)`,
           )
           .run(id, id).changes;
-      if (previous.visibility === "public" && input.visibility !== "public") queuePreviewCachePurge(id);
+      if (previous.visibility === "public" && input.visibility !== undefined && input.visibility !== "public")
+        queuePreviewCachePurge(id);
       return { photo: getPhoto(id)!, unpublished };
     })
     .immediate();

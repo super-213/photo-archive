@@ -153,9 +153,6 @@ export function PhotoViewer({
           </p>
         </div>
         <div className="viewer-actions">
-          <a className="info-button" href={`/media/${photo.id}/original`} download>
-            下载原图
-          </a>
           <button
             type="button"
             className="info-button"

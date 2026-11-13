@@ -7,14 +7,13 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import exifr from "exifr";
 
 const directory = await mkdtemp(path.join(os.tmpdir(), "photo-archive-test-"));
 process.env.PHOTO_ARCHIVE_DATA_DIR = directory;
 process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = "测试作者";
 process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = "© 测试作者 保留所有权利";
 delete process.env.BETTER_AUTH_URL;
-const { importPhoto, rebuildPhotoPreviews, getMediaRecord, readMedia, openCopyrightDownload, maxUploadBytes } =
+const { importPhoto, rebuildPhotoPreviews, getMediaRecord, readMedia, maxUploadBytes } =
   await import("../src/lib/server/media");
 const {
   listPhotos,
@@ -172,6 +171,31 @@ test("anonymous users cannot read private previews, originals, or mutate admin d
   assert.equal((await publicPhotoRoute.GET().json()).length, 0);
 });
 
+test("original downloads are disabled for every visibility, including administrator GET and HEAD requests", async () => {
+  const previous = getPhoto(photoId)!;
+  try {
+    for (const visibility of ["draft", "private", "public"] as const) {
+      updatePhoto(photoId, photoInput.parse({ ...getPhoto(photoId), visibility }));
+      for (const variant of ["original", "original.jpg", "original.webp", "download", "download.jpg", "download.webp"]) {
+        for (const method of ["GET", "HEAD"] as const) {
+          for (const session of ["", cookie]) {
+            const response = await mediaRoute[method](new Request(`${origin}/media/${photoId}/${variant}?download=1`, {
+              method, headers: { cookie: session, host: "localhost:3456", range: "bytes=0-99", "if-none-match": "*" },
+            }), { params: Promise.resolve({ id: photoId, variant }) });
+            assert.equal(response.status, 404);
+            assert.equal((await response.arrayBuffer()).byteLength, 0);
+            assert.match(response.headers.get("cache-control")!, /no-store/);
+          }
+        }
+      }
+    }
+    assert.ok(!(await readdir(path.join(mediaDirectory, getMediaRecord(photoId, "original")!.storage_key)))
+      .some((name) => name.startsWith(".copyright-")));
+  } finally {
+    updatePhoto(photoId, photoInput.parse({ ...getPhoto(photoId), visibility: previous.visibility }));
+  }
+});
+
 test("publishing validates membership, covers, and public status", async () => {
   const input = projectInput.parse({
     version: 0,
@@ -208,14 +232,9 @@ test("publishing validates membership, covers, and public status", async () => {
   const original = await mediaRoute.GET(new Request(`${origin}/media/${photoId}/original`), {
     params: Promise.resolve({ id: photoId, variant: "original" }),
   });
-  assert.equal(original.status, 200);
-  assert.match(original.headers.get("content-disposition")!, /attachment/);
+  assert.equal(original.status, 404);
   assert.match(original.headers.get("cache-control")!, /no-store/);
-  const downloadBytes = Buffer.from(await original.arrayBuffer());
-  const rights = await exifr.parse(downloadBytes, { pick: ["Artist", "Copyright"] });
-  assert.equal(rights.Artist, "测试作者");
-  assert.equal(rights.Copyright, "© 测试作者 保留所有权利");
-  assert.deepEqual(await sharp(downloadBytes).raw().toBuffer(), await sharp(buffer).raw().toBuffer());
+  assert.equal((await original.arrayBuffer()).byteLength, 0);
 });
 
 test("photo editing accepts empty or omitted titles and alt text on published photos", async () => {
@@ -238,6 +257,78 @@ test("photo editing accepts empty or omitted titles and alt text on published ph
     assert.equal(listProjects()[0].photos[0].alt, "");
   }
   updatePhoto(photoId, photoInput.parse({ ...original, version: getPhoto(photoId)!.version }));
+});
+
+async function patchPhoto(body: unknown, headers: HeadersInit = authHeaders, id = photoId) {
+  return photoRoute.PATCH(new Request(`${origin}/api/admin/photos/${id}`, {
+    method: "PATCH", headers, body: JSON.stringify(body),
+  }), { params: Promise.resolve({ id }) });
+}
+
+test("incremental title edits preserve omitted fields and do not rewrite tags or other columns", async () => {
+  const before = getPhoto(photoId)!;
+  const db = getDatabase();
+  const prepare = db.prepare;
+  const statements: string[] = [];
+  db.prepare = ((...args: Parameters<typeof prepare>) => {
+    statements.push(args[0]);
+    return prepare.apply(db, args);
+  }) as typeof prepare;
+  try {
+    const response = await patchPhoto({ version: before.version, title: "仅更新标题" });
+    assert.equal(response.status, 200);
+    const { photo, unpublished } = await response.json();
+    assert.deepEqual(photo, { ...before, title: "仅更新标题", version: before.version + 1 });
+    assert.equal(unpublished, 0);
+    const writes = statements.filter((sql) => /^(UPDATE|INSERT|DELETE)\s/i.test(sql));
+    assert.deepEqual(writes, ["UPDATE photo SET title=@title, version=version+1 WHERE id=@id"]);
+  } finally {
+    db.prepare = prepare;
+    updatePhoto(photoId, photoInput.parse({ ...before, version: getPhoto(photoId)!.version }));
+  }
+});
+
+test("incremental saves distinguish omitted fields, explicit clearing, tag changes and no-ops", async () => {
+  const original = getPhoto(photoId)!;
+  try {
+    let before = getPhoto(photoId)!;
+    let response = await patchPhoto({ version: before.version, alt: "保留的替代文本", tags: ["甲", "乙", "甲"] });
+    assert.equal(response.status, 200);
+    let { photo } = await response.json();
+    assert.equal(photo.title, before.title);
+    assert.deepEqual(photo.tags, ["乙", "甲"]);
+    before = photo;
+    response = await patchPhoto({ version: before.version, tags: ["甲", "乙"] });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).photo, before);
+    response = await patchPhoto({ version: before.version });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).photo, before);
+    response = await patchPhoto({ version: before.version, title: "   ", tags: [] });
+    assert.equal(response.status, 200);
+    photo = (await response.json()).photo;
+    assert.equal(photo.title, "");
+    assert.equal(photo.alt, "保留的替代文本");
+    assert.equal(photo.category, before.category);
+    assert.deepEqual(photo.tags, []);
+    assert.equal(photo.version, before.version + 1);
+    assert.equal((await patchPhoto({ version: before.version, location: "过期编辑" })).status, 409);
+  } finally {
+    updatePhoto(photoId, photoInput.parse({ ...original, version: getPhoto(photoId)!.version }));
+  }
+});
+
+test("PATCH enforces field validation, administrator access, origin checks and missing-photo errors", async () => {
+  const before = getPhoto(photoId)!;
+  for (const changes of [
+    { title: "缺少版本号" }, { version: before.version, title: null },
+    { version: before.version, category: "unknown" }, { version: before.version, capturedAt: "2026-02-30" },
+    { version: before.version, tags: null }, { version: before.version, storage_key: "unsafe" },
+  ]) assert.equal((await patchPhoto(changes)).status, 400);
+  assert.equal((await patchPhoto({ version: before.version }, { "Content-Type": "application/json" })).status, 401);
+  assert.equal((await patchPhoto({ version: before.version }, { ...authHeaders, origin: "https://evil.example" })).status, 403);
+  assert.equal((await patchPhoto({ version: before.version }, authHeaders, "missing-photo")).status, 404);
+  assert.deepEqual(getPhoto(photoId), before);
 });
 
 test("series URLs are generated uniquely and remain stable when editing with an empty slug", async () => {
@@ -332,10 +423,9 @@ test("photo associations have independent ordering and project deletion retains 
 
 test("withdrawing a photo atomically unpublishes affected projects and blocks stale edits", async () => {
   const before = getPhoto(photoId)!;
-  const { unpublished } = updatePhoto(
-    photoId,
-    photoInput.parse({ ...before, visibility: "private" }),
-  );
+  const saved = await patchPhoto({ version: before.version, visibility: "private" });
+  assert.equal(saved.status, 200);
+  const { unpublished } = await saved.json();
   assert.equal(unpublished, 1);
   assert.equal(listProjects().length, 0);
   assert.equal(listPhotos().length, 0);
@@ -389,12 +479,13 @@ test("admin sessions, CSRF checks and registration restrictions protect write en
   );
   assert.equal(registration.status, 404);
   const privateMedia = await mediaRoute.GET(
-    new Request(`${origin}/media/${photoId}/original`, {
+    new Request(`${origin}/media/${photoId}/preview.webp`, {
       headers: { cookie, host: "localhost:3456" },
     }),
-    { params: Promise.resolve({ id: photoId, variant: "original" }) },
+    { params: Promise.resolve({ id: photoId, variant: "preview.webp" }) },
   );
   assert.equal(privateMedia.status, 200);
+  await privateMedia.arrayBuffer();
 });
 
 test("invalid images and oversized payloads fail cleanly and allow subsequent uploads", async () => {
@@ -557,7 +648,7 @@ test("previews use lossy WebP at the correct sizes and rebuild legacy files with
   await rm(path.join(mediaDirectory, record.storage_key), { recursive: true, force: true });
 });
 
-test("streamed uploads above 80 MiB preserve original bytes and support public range downloads", async () => {
+test("streamed uploads above 80 MiB preserve originals internally and serve only display images with range support", async () => {
   const boundary = "large-photo-fixture";
   const padding = Buffer.alloc(1024 * 1024);
   const hash = createHash("sha256");
@@ -585,17 +676,18 @@ test("streamed uploads above 80 MiB preserve original bytes and support public r
   for await (const chunk of createReadStream(path.join(mediaDirectory, record.storage_key, record.filename))) stored.update(chunk);
   assert.equal(stored.digest("hex"), hash.digest("hex"));
   updatePhoto(photo.id, photoInput.parse({ ...photo, visibility: "public" }));
-  const url = `${origin}/media/${photo.id}/original`;
-  const context = { params: Promise.resolve({ id: photo.id, variant: "original" }) };
-  const original = await mediaRoute.GET(new Request(url), context);
-  const downloaded = createHash("sha256");
-  for await (const chunk of Readable.fromWeb(original.body! as Parameters<typeof Readable.fromWeb>[0])) downloaded.update(chunk);
-  const temporaryDownload = await openCopyrightDownload(photo.id);
-  let downloadBytes: Buffer;
-  try { downloadBytes = await temporaryDownload.file.readFile(); }
-  finally { await temporaryDownload.dispose(); }
+  const original = await mediaRoute.GET(new Request(`${origin}/media/${photo.id}/original`), {
+    params: Promise.resolve({ id: photo.id, variant: "original" }),
+  });
+  assert.equal(original.status, 404);
+  assert.equal((await original.arrayBuffer()).byteLength, 0);
+  const url = `${origin}/media/${photo.id}/lightbox.webp`;
+  const context = { params: Promise.resolve({ id: photo.id, variant: "lightbox.webp" }) };
+  const display = await mediaRoute.GET(new Request(url), context);
+  assert.equal(display.status, 200);
+  const downloadBytes = await readMedia(getMediaRecord(photo.id, "lightbox")!);
   assert.equal(getMediaRecord(photo.id, "download"), undefined);
-  assert.equal(downloaded.digest("hex"), createHash("sha256").update(downloadBytes).digest("hex"));
+  assert.deepEqual(Buffer.from(await display.arrayBuffer()), downloadBytes);
   const partial = await mediaRoute.GET(new Request(url, { headers: { range: "bytes=0-99" } }), context);
   assert.equal(partial.status, 206);
   assert.equal(partial.headers.get("content-range"), `bytes 0-99/${downloadBytes.length}`);

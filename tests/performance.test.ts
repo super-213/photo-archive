@@ -88,6 +88,30 @@ test("public project queries preserve layouts, cover metadata and next-series or
   assert.equal(getNextPublishedProject(projects[1])?.slug, "series-a");
 });
 
+test("series preload hints stay bounded to the first layout and match its responsive widths", () => {
+  const update = db.prepare("UPDATE project_photo SET layout_type=?, layout_group=? WHERE project_id='series-a' AND photo_id=?");
+  const previews = () => listProjectCovers().find((project) => project.slug === "series-a")!.previews;
+  try {
+    for (let index = 0; index < 3; index++) update.run("triptych", "first", `photo-00${index}`);
+    assert.equal(previews().length, 2);
+    assert.deepEqual(previews().map((hint) => hint.sizes), Array(2).fill("(max-width: 767px) 90vw, 29vw"));
+    assert.deepEqual(Object.keys(previews()[0].photo).sort(), ["height", "lightboxSrc", "src", "thumbnailSrc", "width"]);
+    assert.match(previews()[0].photo.src, /photo-000\/lightbox\.webp$/);
+
+    update.run("full", null, "photo-002");
+    assert.deepEqual(previews().map((hint) => hint.sizes), Array(2).fill("(max-width: 767px) 90vw, 44vw"));
+    update.run("triptych", "separate", "photo-001");
+    assert.equal(previews().length, 1);
+    assert.equal(previews()[0].sizes, "(max-width: 767px) 90vw, 58vw");
+
+    update.run("large-small", "first", "photo-000");
+    update.run("large-small", "first", "photo-001");
+    assert.deepEqual(previews().map((hint) => hint.sizes), ["(max-width: 767px) 90vw, 55vw", "(max-width: 767px) 90vw, 33vw"]);
+  } finally {
+    for (let index = 0; index < 3; index++) update.run("full", null, `photo-00${index}`);
+  }
+});
+
 test("query count remains bounded as photo and project membership grow", () => {
   const prepare = db.prepare;
   let queries = 0;

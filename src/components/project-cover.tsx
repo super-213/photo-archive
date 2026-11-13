@@ -1,5 +1,5 @@
 import { PhotoImage } from "@/components/photo-image";
-import Link from "next/link";
+import { ProjectLink } from "./project-link";
 import {
   coverAspectRatios,
   type CoverSettings,
@@ -50,9 +50,10 @@ export function ProjectCover({
   const cover = project.cover;
   if (!cover) return null;
   return (
-    <Link
+    <ProjectLink
       href={`/works/${project.slug}`}
       className={`project-cover project-cover-${project.coverLayout}`}
+      previews={project.previews}
     >
       <CoverImage
         photo={cover}
@@ -75,6 +76,6 @@ export function ProjectCover({
         </div>
         <Arrow />
       </div>
-    </Link>
+    </ProjectLink>
   );
 }

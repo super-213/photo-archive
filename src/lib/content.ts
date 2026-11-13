@@ -50,6 +50,10 @@ export type Photo = {
   isSample: boolean;
   version: number;
 };
+export type PhotoSource = Pick<Photo,
+  "src" | "lightboxSrc" | "thumbnailSrc" | "previewSrc" | "width" | "height"
+>;
+export type PhotoPreload = { photo: PhotoSource; sizes: string };
 export const layoutTypes = [
   "full",
   "center",
@@ -169,4 +173,5 @@ export type ProjectCoverData = CoverSettings & {
   title: string;
   subtitle: string;
   cover: Photo;
+  previews: PhotoPreload[];
 };

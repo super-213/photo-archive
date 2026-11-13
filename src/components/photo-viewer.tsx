@@ -4,6 +4,7 @@ import { ZoomablePhoto, type ZoomControls } from "./zoomable-photo";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Photo } from "@/lib/content";
 import { Arrow, Close } from "./icons";
+import { preloadAdjacentPhotos } from "@/lib/photo-preload";
 
 export function PhotoViewer({
   photos,
@@ -19,7 +20,9 @@ export function PhotoViewer({
   const zoom = useRef<ZoomControls | null>(null);
   const [index, setIndex] = useState(initialIndex);
   const [showInfo, setShowInfo] = useState(false);
+  const [readyPhoto, setReadyPhoto] = useState<string | null>(null);
   const photo = photos[index];
+  const onPhotoReady = useCallback(() => setReadyPhoto(photo.id), [photo.id]);
   const move = useCallback(
     (step: number) =>
       setIndex((current) => (current + step + photos.length) % photos.length),
@@ -58,6 +61,14 @@ export function PhotoViewer({
       previousFocus?.focus({ preventScroll: true });
     };
   }, []);
+
+  useEffect(() => {
+    if (readyPhoto !== photo.id) return;
+    const canvas = dialog.current?.querySelector(".viewer-canvas");
+    if (!canvas) return;
+    const { width, height } = canvas.getBoundingClientRect();
+    return preloadAdjacentPhotos(photos, index, width, height);
+  }, [index, photo.id, photos, readyPhoto]);
 
   return (
     <dialog
@@ -133,6 +144,7 @@ export function PhotoViewer({
           controls={zoom}
           onPrevious={() => move(-1)}
           onNext={() => move(1)}
+          onReady={onPhotoReady}
         />
         <button
           type="button"

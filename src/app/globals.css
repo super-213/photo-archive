@@ -375,7 +375,7 @@ em[lang="zh-CN"] {
   width: 100%;
   transition: opacity 200ms ease;
 }
-img[data-image-status="loaded"] {
+img[data-image-reveal="true"] {
   animation: image-reveal 240ms ease-out;
 }
 @keyframes image-reveal {

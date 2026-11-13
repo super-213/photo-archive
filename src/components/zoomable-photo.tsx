@@ -17,6 +17,7 @@ import {
   type Point,
 } from "@/lib/photo-zoom";
 import { PhotoImage } from "./photo-image";
+import { lightboxImageSizes } from "@/lib/photo-sources";
 
 export type ZoomControls = {
   zoom: (factor: number) => void;
@@ -37,17 +38,19 @@ export function ZoomablePhoto({
   controls,
   onPrevious,
   onNext,
+  onReady,
 }: {
   photo: Photo;
   controls: RefObject<ZoomControls | null>;
   onPrevious: () => void;
   onNext: () => void;
+  onReady: () => void;
 }) {
   const canvas = useRef<HTMLDivElement>(null);
   const [view, setView] = useState(initialTransform);
   const current = useRef(initialTransform);
   const frame = useRef<number | null>(null);
-  const [viewport, setViewport] = useState({ width: 1, height: 1 });
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const size = useRef(viewport);
   const pointers = useRef(new Map<number, PointerPosition>());
   const gesture = useRef<Gesture | null>(null);
@@ -284,15 +287,18 @@ export function ZoomablePhoto({
             aria-hidden="true"
             draggable={false}
           />
-          <PhotoImage
-            key={photo.id}
-            photo={photo}
-            variant="lightbox"
-            fill
-            sizes={`${Math.ceil(Math.min(viewport.width, viewport.height * photo.width / photo.height) * view.scale)}px`}
-            loading="eager"
-            fetchPriority="high"
-          />
+          {viewport.width > 0 && viewport.height > 0 && (
+            <PhotoImage
+              key={photo.id}
+              photo={photo}
+              variant="lightbox"
+              fill
+              sizes={lightboxImageSizes(photo, viewport.width, viewport.height, view.scale)}
+              onReady={onReady}
+              loading="eager"
+              fetchPriority="high"
+            />
+          )}
         </div>
       </div>
       <div className="viewer-zoom-controls" role="group" aria-label="图片缩放">

@@ -4,25 +4,15 @@ import { PhotoImage } from "@/components/photo-image";
 import { useState } from "react";
 import type { Photo, PhotoLayout } from "@/lib/content";
 import dynamic from "next/dynamic";
+import { layoutImageSizes } from "@/lib/photo-sources";
+import { canPreloadPhotos } from "@/lib/photo-preload";
 
 const PhotoViewer = dynamic(() =>
   import("./photo-viewer").then((module) => module.PhotoViewer),
 );
 
-function layoutImageSizes(layout: PhotoLayout, index: number) {
-  const widths = {
-    full: 90,
-    center: 58,
-    pair: 44,
-    asymmetric: 44,
-    "large-small": index === 0 ? 55 : 33,
-    triptych: layout.photoIds.length === 2 ? 44 : 29,
-  };
-  const desktopWidth =
-    layout.photoIds.length === 1 && layout.type !== "full"
-      ? 58
-      : widths[layout.type];
-  return `(max-width: 767px) 90vw, ${desktopWidth}vw`;
+function prepareViewer() {
+  if (canPreloadPhotos()) void import("./photo-viewer").catch(() => {});
 }
 
 export function PhotoGallery({
@@ -46,6 +36,9 @@ export function PhotoGallery({
         type="button"
         className="photo-button"
         key={photo.id}
+        onPointerEnter={(event) => { if (event.pointerType !== "touch") prepareViewer(); }}
+        onFocus={prepareViewer}
+        onPointerDown={prepareViewer}
         onClick={() =>
           setSelected(photoById.get(photo.id)!.index)
         }

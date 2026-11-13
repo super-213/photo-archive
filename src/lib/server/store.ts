@@ -7,6 +7,7 @@ import type {
   PhotoPage,
   ProjectCoverData,
   Photo,
+  PhotoSource,
   PhotoLayout,
   Project,
   ProjectPhotoInput,
@@ -15,6 +16,7 @@ import { getDatabase } from "./database";
 import { AppError, photoPatchInput, projectInput } from "./validation";
 import type { z } from "zod";
 import { queuePreviewCachePurge } from "./cdn-cache";
+import { layoutImageSizes } from "../photo-sources";
 
 type PhotoRow = {
   id: string;
@@ -80,18 +82,23 @@ export function getPhoto(id: string): Photo | undefined {
     .get(id) as PhotoRow | undefined;
   return row && serializePhoto(row);
 }
-function serializePhoto(row: PhotoRow): Photo {
+function serializePhotoSource(row: Pick<PhotoRow, "id" | "width" | "height" | "has_preview">): PhotoSource {
   return {
-    id: row.id,
-    title: row.title,
-    alt: row.alt,
-    description: row.description,
     width: row.width,
     height: row.height,
     src: `/media/${row.id}/${row.has_preview ? "preview" : "lightbox"}.webp`,
     lightboxSrc: `/media/${row.id}/lightbox.webp`,
     thumbnailSrc: `/media/${row.id}/thumbnail.webp`,
     ...(row.has_preview ? { previewSrc: `/media/${row.id}/preview.webp` } : {}),
+  };
+}
+function serializePhoto(row: PhotoRow): Photo {
+  return {
+    ...serializePhotoSource(row),
+    id: row.id,
+    title: row.title,
+    alt: row.alt,
+    description: row.description,
     category: row.category,
     year: row.year,
     location: row.location,
@@ -276,21 +283,45 @@ export function listProjects(publicOnly = true): Project[] {
 
 export function listProjectCovers(): ProjectCoverData[] {
   const rows = getDatabase().prepare(
-    `SELECT ${photoColumns}, pr.slug, pr.title AS project_title, pr.subtitle, pr.cover_layout, pr.cover_ratio, pr.cover_focus_x, pr.cover_focus_y
+    `SELECT ${photoColumns}, pr.slug, pr.title AS project_title, pr.subtitle, pr.cover_layout, pr.cover_ratio, pr.cover_focus_x, pr.cover_focus_y,
+    (SELECT json_group_array(json_object(
+      'id', id, 'width', width, 'height', height, 'has_preview', has_preview,
+      'layout_type', layout_type, 'layout_group', layout_group
+    )) FROM (
+      SELECT ph.id, ph.width, ph.height, pp.layout_type, pp.layout_group,
+        EXISTS(SELECT 1 FROM media_variant WHERE photo_id=ph.id AND variant='preview') AS has_preview
+      FROM project_photo pp JOIN photo ph ON ph.id=pp.photo_id
+      WHERE pp.project_id=pr.id ORDER BY pp.sort_order LIMIT 3
+    )) AS previews_json
     FROM project pr JOIN photo p ON p.id=pr.cover_photo_id
     WHERE pr.id IN (SELECT p.id FROM project p WHERE ${publishedProjectWhere})
     ORDER BY pr.sort_order, pr.id`,
-  ).all() as (PhotoRow & Pick<ProjectRow, "cover_layout" | "cover_ratio" | "cover_focus_x" | "cover_focus_y"> & { slug: string; project_title: string; subtitle: string })[];
-  return rows.map((row) => ({
-    slug: row.slug,
-    title: row.project_title,
-    subtitle: row.subtitle,
-    cover: serializePhoto(row),
-    coverLayout: row.cover_layout,
-    coverRatio: row.cover_ratio,
-    coverFocusX: row.cover_focus_x,
-    coverFocusY: row.cover_focus_y,
-  }));
+  ).all() as (PhotoRow & Pick<ProjectRow, "cover_layout" | "cover_ratio" | "cover_focus_x" | "cover_focus_y"> & { slug: string; project_title: string; subtitle: string; previews_json: string })[];
+  return rows.map((row) => {
+    // Three members identify even a triptych's widths; only two images are prefetched.
+    const members = JSON.parse(row.previews_json) as Pick<ProjectMemberRow,
+      "id" | "width" | "height" | "has_preview" | "layout_type" | "layout_group"
+    >[];
+    const layouts = buildPhotoLayouts(members.map((member) => ({
+      photoId: member.id, layoutType: member.layout_type,
+      groupId: member.layout_group || undefined, caption: "",
+    })));
+    const firstLayout = layouts[0];
+    return {
+      slug: row.slug,
+      title: row.project_title,
+      subtitle: row.subtitle,
+      cover: serializePhoto(row),
+      coverLayout: row.cover_layout,
+      coverRatio: row.cover_ratio,
+      coverFocusX: row.cover_focus_x,
+      coverFocusY: row.cover_focus_y,
+      previews: firstLayout.photoIds.slice(0, 2).map((id, index) => ({
+        photo: serializePhotoSource(members.find((member) => member.id === id)!),
+        sizes: layoutImageSizes(firstLayout, index),
+      })),
+    };
+  });
 }
 
 export function getPublishedProject(slug: string): Project | undefined {

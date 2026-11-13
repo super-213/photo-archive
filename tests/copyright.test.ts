@@ -119,21 +119,21 @@ test("third-party sample photos retain their source attribution", async () => {
   const sample = (await importPhoto(source, "sample.jpg", { isSample: true })).photo;
   assert.equal(getMediaRecord(sample.id, "download"), undefined);
   assert.deepEqual(await readMedia((await ensureCopyrightDownload(sample.id))!), source);
-  const tags = await readTags(sample.id, "grid");
+  const tags = await readTags(sample.id, "preview");
   assert.notEqual(tags["XMP-dc:Rights"], copyrightNotice);
   assert.equal((await readTags(sample.id, "original"))["IFD0:Copyright"], "Sample copyright");
 });
 
 test("changing copyright configuration refreshes cached media automatically", async () => {
   const previousDownload = getMediaRecord(id, "download")!;
-  const previousPreview = getMediaRecord(id, "grid")!;
+  const previousPreview = getMediaRecord(id, "preview")!;
   try {
     process.env.PHOTO_ARCHIVE_COPYRIGHT_AUTHOR = "另一个作者";
     process.env.PHOTO_ARCHIVE_COPYRIGHT_NOTICE = "© 另一个作者 <作品集>";
     assert.equal(await rebuildPhotoPreviews(id), true);
     assert.notEqual(getMediaRecord(id, "download")!.encoding_version, previousDownload.encoding_version);
-    assert.notEqual(getMediaRecord(id, "grid")!.encoding_version, previousPreview.encoding_version);
-    for (const variant of ["grid", "download"]) {
+    assert.notEqual(getMediaRecord(id, "preview")!.encoding_version, previousPreview.encoding_version);
+    for (const variant of ["preview", "download"]) {
       const tags = await readTags(id, variant);
       assert.equal(tags["XMP-dc:Creator"], "另一个作者");
       assert.equal(tags["XMP-dc:Rights"], "© 另一个作者 <作品集>");
@@ -153,7 +153,7 @@ test("empty configuration uses uploaded originals and removes old display attrib
     const record = await ensureCopyrightDownload(id);
     assert.equal(record?.filename, getMediaRecord(id, "original")!.filename);
     assert.equal(await rebuildPhotoPreviews(id), true);
-    const tags = await readTags(id, "grid");
+    const tags = await readTags(id, "preview");
     assert.equal(tags["XMP-dc:Creator"], undefined);
     assert.equal(tags["XMP-dc:Rights"], undefined);
     const downloaded = await mediaRoute.GET(new Request(`http://localhost/media/${id}/original`), {

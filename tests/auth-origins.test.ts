@@ -55,6 +55,9 @@ test("domain, loopback and this machine's LAN address support login, private med
       method: "PUT", headers, body: JSON.stringify({ ...getPhoto(id), title: `Saved via ${host}` }),
     }), { params: Promise.resolve({ id }) });
     assert.equal(response.status, 200, origin);
+    for (const stage of ["auth", "body", "db", "total"])
+      assert.match(response.headers.get("server-timing")!, new RegExp(`${stage};dur=\\d+\\.\\d+`));
+    assert.match(response.headers.get("x-request-id")!, /^[\da-f-]{36}$/);
     assert.equal((await response.json()).photo.title, `Saved via ${host}`);
     const media = await mediaRoute.GET(new Request(`${origin}/media/${id}/thumbnail`, { headers }), {
       params: Promise.resolve({ id, variant: "thumbnail" }),

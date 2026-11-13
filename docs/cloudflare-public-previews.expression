@@ -1,0 +1,9 @@
+(http.host eq "photo-archive.zhihaojiang.com"
+ and http.request.method in {"GET" "HEAD"}
+ and starts_with(http.request.uri.path, "/media/")
+ and http.request.uri.query eq ""
+ and (
+   ends_with(http.request.uri.path, "/thumbnail.webp")
+   or ends_with(http.request.uri.path, "/preview.webp")
+   or ends_with(http.request.uri.path, "/lightbox.webp")
+ ))

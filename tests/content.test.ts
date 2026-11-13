@@ -97,7 +97,7 @@ test("uploads normalize orientation, extract EXIF, strip preview metadata and be
   assert.equal(result.photo.cameraModel, "Test Camera");
   assert.equal(result.photo.capturedAt, "2024-05-06");
   assert.equal(listPhotos().length, 0);
-  for (const variant of ["thumbnail", "grid", "lightbox"]) {
+  for (const variant of ["thumbnail", "preview", "lightbox"]) {
     const bytes = await readMedia(getMediaRecord(photoId, variant)!);
     const metadata = await sharp(bytes).metadata();
     assert.equal(metadata.format, "webp");
@@ -532,16 +532,16 @@ test("lossless previews match resized pixels and rebuilding preserves source and
   const { photo } = await importPhoto(source, "高质量样片.jpg");
   assert.equal(photo.title, "高质量样片");
   assert.ok(photo.previewSrc);
-  for (const [variant, width] of [["thumbnail", 420], ["preview", 840], ["grid", 1440], ["lightbox", 2560]] as const) {
+  for (const [variant, width] of [["thumbnail", 420], ["preview", 840], ["lightbox", 2560]] as const) {
     const expected = await sharp(source).rotate().resize({ width, height: width, fit: "inside", withoutEnlargement: true }).raw().toBuffer();
     const actual = await sharp(await readMedia(getMediaRecord(photo.id, variant)!)).raw().toBuffer();
     assert.deepEqual(actual, expected);
   }
   updatePhoto(photo.id, photoInput.parse({ ...photo, title: "人工标题", tags: ["保留"] }));
-  const record = getMediaRecord(photo.id, "grid")!;
-  const legacy = await sharp(source).resize(1440).webp({ quality: 20 }).toBuffer();
+  const record = getMediaRecord(photo.id, "preview")!;
+  const legacy = await sharp(source).resize(840).webp({ quality: 20 }).toBuffer();
   await writeFile(path.join(mediaDirectory, record.storage_key, record.filename), legacy);
-  getDatabase().prepare("UPDATE media_variant SET encoding_version=1 WHERE photo_id=? AND variant='grid'").run(photo.id);
+  getDatabase().prepare("UPDATE media_variant SET encoding_version=1 WHERE photo_id=? AND variant='preview'").run(photo.id);
   assert.equal(await rebuildPhotoPreviews(photo.id), true);
   assert.equal(await rebuildPhotoPreviews(photo.id), false);
   assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), source);

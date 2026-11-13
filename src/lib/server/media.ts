@@ -12,6 +12,7 @@ import type { Category, Photo } from "../content";
 
 import { createCopyrightXmp, getCopyrightSettings, writeCopyrightDownload, type CopyrightSettings } from "./copyright";
 import { maxUploadBytes, maxInputPixels, previewEncodingVersion, previewVariants } from "../media-settings";
+import { queuePreviewCachePurge } from "./cdn-cache";
 export { maxUploadBytes } from "../media-settings";
 const formats: Record<string, string> = {
   jpeg: "jpg",
@@ -237,6 +238,14 @@ export function openMedia(record: NonNullable<ReturnType<typeof getMediaRecord>>
   return open(path.join(mediaDirectory, record.storage_key, record.filename), "r");
 }
 
+async function removeRetiredGrid(id: string, directory: string) {
+  const record = getMediaRecord(id, "grid");
+  if (!record) return false;
+  // Only remove the known derived file; uploaded originals and download copies are never touched.
+  if (record.filename === "grid.webp") await rm(path.join(directory, "grid.webp"), { force: true });
+  return getDatabase().prepare("DELETE FROM media_variant WHERE photo_id=? AND variant='grid'").run(id).changes > 0;
+}
+
 export async function rebuildPhotoPreviews(id: string) {
   const db = getDatabase();
   const original = getMediaRecord(id, "original");
@@ -247,8 +256,12 @@ export async function rebuildPhotoPreviews(id: string) {
   const current = db.prepare(
     "SELECT variant FROM media_variant WHERE photo_id=? AND encoding_version=? AND variant!='original'",
   ).all(id, encodingVersion) as { variant: string }[];
-  if (previewVariants.every((variant) => current.some((row) => row.variant === variant.name))) return false;
   const directory = path.join(mediaDirectory, original.storage_key);
+  if (previewVariants.every((variant) => current.some((row) => row.variant === variant.name))) {
+    const retired = await removeRetiredGrid(id, directory);
+    if (retired && original.visibility === "public") queuePreviewCachePurge(id);
+    return retired;
+  }
   const temporary = await mkdtemp(path.join(directory, ".previews-"));
   try {
     await generatePreviews(path.join(directory, original.filename), temporary, copyright);
@@ -261,6 +274,8 @@ export async function rebuildPhotoPreviews(id: string) {
       for (const variant of previewVariants)
         save.run(id, variant.name, `${variant.name}.webp`, "image/webp", encodingVersion);
     }).immediate();
+    await removeRetiredGrid(id, directory);
+    if (original.visibility === "public") queuePreviewCachePurge(id);
     return true;
   } finally {
     await rm(temporary, { recursive: true, force: true });

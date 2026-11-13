@@ -51,7 +51,8 @@ test("nested files wait for copy stability, become credited drafts and preserve 
   assert.deepEqual(await readFile(filename), image);
   assert.deepEqual(await readMedia(getMediaRecord(photo.id, "original")!), image);
   assert.ok(getMediaRecord(photo.id, "download"));
-  for (const variant of ["thumbnail", "preview", "grid", "lightbox"]) assert.ok(getMediaRecord(photo.id, variant));
+  for (const variant of ["thumbnail", "preview", "lightbox"]) assert.ok(getMediaRecord(photo.id, variant));
+  assert.equal(getMediaRecord(photo.id, "grid"), undefined);
   const report = JSON.parse(await readFile(path.join(inbox, "导入记录.json"), "utf8"));
   assert.equal(report.counts.imported, 1);
   assert.equal(report.recent[0].file, path.join("旅行", "海边.JPG"));

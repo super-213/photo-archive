@@ -14,6 +14,7 @@ import type {
 import { getDatabase } from "./database";
 import { AppError, photoInput, projectInput } from "./validation";
 import type { z } from "zod";
+import { queuePreviewCachePurge } from "./cdn-cache";
 
 type PhotoRow = {
   id: string;
@@ -87,10 +88,10 @@ function serializePhoto(row: PhotoRow): Photo {
     description: row.description,
     width: row.width,
     height: row.height,
-    src: `/media/${row.id}/grid`,
-    lightboxSrc: `/media/${row.id}/lightbox`,
-    thumbnailSrc: `/media/${row.id}/thumbnail`,
-    ...(row.has_preview ? { previewSrc: `/media/${row.id}/preview` } : {}),
+    src: `/media/${row.id}/${row.has_preview ? "preview" : "lightbox"}.webp`,
+    lightboxSrc: `/media/${row.id}/lightbox.webp`,
+    thumbnailSrc: `/media/${row.id}/thumbnail.webp`,
+    ...(row.has_preview ? { previewSrc: `/media/${row.id}/preview.webp` } : {}),
     category: row.category,
     year: row.year,
     location: row.location,
@@ -184,6 +185,7 @@ export function updatePhoto(id: string, input: z.infer<typeof photoInput>) {
       AND id IN (SELECT project_id FROM project_photo WHERE photo_id = ? UNION SELECT id FROM project WHERE cover_photo_id = ?)`,
           )
           .run(id, id).changes;
+      if (previous.visibility === "public" && input.visibility !== "public") queuePreviewCachePurge(id);
       return { photo: getPhoto(id)!, unpublished };
     })
     .immediate();

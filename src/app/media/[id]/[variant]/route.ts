@@ -1,4 +1,4 @@
-import { previewVariants } from "@/lib/media-settings";
+import { previewVariants, publicPreviewCacheSeconds } from "@/lib/media-settings";
 import { Readable } from "node:stream";
 import { getAdministrator } from "@/lib/server/auth";
 import { ensureCopyrightDownload, getMediaRecord, openMedia } from "@/lib/server/media";
@@ -9,13 +9,19 @@ export const dynamic = "force-dynamic";
 type MediaContext = { params: Promise<{ id: string; variant: string }> };
 const privateHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
+  "Cloudflare-CDN-Cache-Control": "no-store",
   Vary: "Cookie",
   "X-Content-Type-Options": "nosniff",
 };
 
 export async function GET(request: Request, context: MediaContext) {
-  const { id, variant } = await context.params;
-  if (variant !== "original" && !previewVariants.some((item) => item.name === variant))
+  const { id, variant: requestedVariant } = await context.params;
+  const webp = requestedVariant.endsWith(".webp");
+  const name = webp ? requestedVariant.slice(0, -5) : requestedVariant;
+  const legacyGrid = name === "grid";
+  const variant = legacyGrid ? "preview" : name;
+  if ((webp && variant === "original") ||
+      (variant !== "original" && !previewVariants.some((item) => item.name === variant)))
     return new Response(null, { status: 404, headers: privateHeaders });
   let record = getMediaRecord(id, variant);
   if (!record) return new Response(null, { status: 404, headers: privateHeaders });
@@ -35,10 +41,17 @@ export async function GET(request: Request, context: MediaContext) {
     if (!current || (current.visibility !== "public" && !administrator))
       return new Response(null, { status: 404, headers: privateHeaders });
     const cacheable = variant !== "original" && current.visibility === "public";
+    // Only canonical, public display URLs may be shared by the CDN. Downloads never qualify.
+    const cdnCacheable = cacheable && webp && !legacyGrid && !new URL(request.url).search;
     const etag = `"${stat.size.toString(16)}-${stat.mtimeMs.toString(16)}"`;
     const headers = {
-      ...privateHeaders,
-      ...(cacheable ? { "Cache-Control": "private, no-cache", ETag: etag } : {}),
+      ...(cdnCacheable ? {
+        // Keep browser storage disabled; the Cloudflare-only policy independently permits edge caching.
+        "Cache-Control": "private, no-store, max-age=0",
+        "Cloudflare-CDN-Cache-Control": `public, max-age=${publicPreviewCacheSeconds}, must-revalidate`,
+      } : privateHeaders),
+      ...(cacheable ? { ...(!cdnCacheable ? { "Cache-Control": "private, no-cache" } : {}), ETag: etag } : {}),
+      "X-Content-Type-Options": "nosniff",
       "Content-Type": record.mime_type,
       "Content-Disposition": `${variant === "original" ? "attachment" : "inline"}; filename="${variant === "original" ? `original${record.filename.slice(record.filename.lastIndexOf("."))}` : record.filename}"`,
     };

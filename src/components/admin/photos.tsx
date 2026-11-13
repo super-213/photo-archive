@@ -314,7 +314,7 @@ function PhotoEditor({
         </button>
       </div>
       <Image
-        src={photo.src}
+        src={photo.previewSrc || photo.src}
         alt={photo.alt}
         width={photo.width}
         height={photo.height}
@@ -376,6 +376,7 @@ function PhotoEditor({
                   </option>
                 ))}
               </select>
+              <span className="admin-muted">公开展示图使用 CDN 缓存，默认有效期 60 秒。转为草稿或私有后，已缓存副本可能在过期前短暂可见。</span>
             </label>
             <label>
               <span>题材 <span className="admin-required" aria-hidden="true">*</span></span>

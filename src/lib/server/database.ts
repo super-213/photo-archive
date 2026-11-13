@@ -135,6 +135,15 @@ export function getDatabase() {
     )`);
     db.prepare("INSERT INTO schema_migration VALUES (6, ?)").run(new Date().toISOString());
   }).immediate();
+  db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM schema_migration WHERE version = 7").get()) return;
+    db.exec(`CREATE TABLE cdn_purge (
+      origin TEXT NOT NULL, photo_id TEXT NOT NULL, generation TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(origin, photo_id)
+    )`);
+    db.prepare("INSERT INTO schema_migration VALUES (7, ?)").run(new Date().toISOString());
+  }).immediate();
   database = db;
   return db;
 }

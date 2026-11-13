@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, realpath, rename, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { dataDirectory, getDatabase } from "./database";
 import { importPhotoFile } from "./media";
@@ -66,6 +66,17 @@ async function signature(filename: string) {
   return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
 }
 
+async function removeImportedSource(filename: string, expectedSignature: string) {
+  try {
+    // Importing can take time. Leave a replaced or modified source for the next scan.
+    if (await signature(filename) !== expectedSignature) return;
+    await unlink(filename);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw new Error(`照片已入库，但删除导入源文件失败：${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function processExists(pid: number | null) {
   if (!pid) return false;
   try { process.kill(pid, 0); return true; }
@@ -128,32 +139,39 @@ export function createFolderImporter(options: { directory?: string; settleMs?: n
             return false;
           }
           if (previous.status === "processing" && processExists(previous.owner_pid)) return false;
+          // Finish cleanup after a restart, including files imported by older versions.
+          if ((previous.status === "imported" || previous.status === "duplicate") && previous.photo_id)
+            return "cleanup";
           if (previous.status !== "waiting" && previous.status !== "processing") return false;
           if (timestamp - previous.observed_at < settleMs) return false;
           db.prepare("UPDATE folder_import SET status='processing',owner_pid=?,updated_at=? WHERE file_path=?")
             .run(process.pid, timestamp, filename);
-          return true;
+          return "import";
         }).immediate();
         if (!claim) continue;
         dirty = true;
         let temporary: string | undefined;
         try {
-          const info = await lstat(filename);
-          if (!info.isFile()) throw new Error("仅导入普通照片文件");
-          if (!info.size || info.size > maxUploadBytes) throw new Error("单张照片大小应在 1 字节至 256 MiB 之间");
-          // Work from a stable snapshot; a source changing during the copy waits for another scan.
-          temporary = await mkdtemp(path.join(dataDirectory, ".folder-import-"));
-          const snapshot = path.join(temporary, "source");
-          await copyFile(filename, snapshot);
-          if (await signature(filename) !== currentSignature) {
-            db.prepare("DELETE FROM folder_import WHERE file_path=? AND owner_pid=?").run(filename, process.pid);
-            continue;
+          if (claim === "import") {
+            const info = await lstat(filename);
+            if (!info.isFile()) throw new Error("仅导入普通照片文件");
+            if (!info.size || info.size > maxUploadBytes) throw new Error("单张照片大小应在 1 字节至 256 MiB 之间");
+            // Work from a stable snapshot; a source changing during the copy waits for another scan.
+            temporary = await mkdtemp(path.join(dataDirectory, ".folder-import-"));
+            const snapshot = path.join(temporary, "source");
+            await copyFile(filename, snapshot);
+            if (await signature(filename) !== currentSignature) {
+              db.prepare("DELETE FROM folder_import WHERE file_path=? AND owner_pid=?").run(filename, process.pid);
+              continue;
+            }
+            const result = await importPhotoFile(snapshot, path.basename(filename), { visibility: "draft" });
+            const status = result.duplicate ? "duplicate" : "imported";
+            db.prepare("UPDATE folder_import SET status=?,photo_id=?,owner_pid=NULL,updated_at=?,error='' WHERE file_path=?")
+              .run(status, result.photo.id, now(), filename);
+            console.log(`[文件夹导入] ${status === "duplicate" ? "已存在" : "已导入草稿"}：${path.relative(root, filename)}`);
           }
-          const result = await importPhotoFile(snapshot, path.basename(filename), { visibility: "draft" });
-          const status = result.duplicate ? "duplicate" : "imported";
-          db.prepare("UPDATE folder_import SET status=?,photo_id=?,owner_pid=NULL,updated_at=?,error='' WHERE file_path=?")
-            .run(status, result.photo.id, now(), filename);
-          console.log(`[文件夹导入] ${status === "duplicate" ? "已存在" : "已导入草稿"}：${path.relative(root, filename)}`);
+          // Only remove the source after both media storage and the import record succeed.
+          await removeImportedSource(filename, currentSignature);
         } catch (error) {
           const message = error instanceof Error ? error.message : "导入失败";
           db.prepare("UPDATE folder_import SET status='error',owner_pid=NULL,updated_at=?,error=? WHERE file_path=?")

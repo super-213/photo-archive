@@ -157,7 +157,7 @@ export function PhotoManager({ initialPhotos, initialFolderImport }: {
       <section className="admin-folder-import" aria-label="文件夹导入">
         <div>
           <strong>文件夹导入{folderImport.enabled ? "" : "（自动扫描已暂停）"}</strong>
-          <p className="admin-muted">将照片或子文件夹复制到服务器上的 <code>{folderImport.directory}</code>，复制稳定后自动导入为草稿，源文件保留。</p>
+          <p className="admin-muted">将照片或子文件夹复制到服务器上的 <code>{folderImport.directory}</code>，复制稳定后自动导入为草稿。成功导入或确认重复后自动删除导入目录中的源图片，失败文件保留。</p>
           <p className="admin-muted" aria-live="polite">
             等待 {folderImport.counts.waiting} · 处理中 {folderImport.counts.processing} · 已导入 {folderImport.counts.imported} · 重复 {folderImport.counts.duplicate} · 失败 {folderImport.counts.error}
           </p>
